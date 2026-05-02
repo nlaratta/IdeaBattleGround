@@ -15,8 +15,12 @@ export function attachSse(bus: EventBus) {
       res.write(`data: ${JSON.stringify(e)}\n\n`);
     };
 
-    // Keepalive comment every 15s to defeat proxies
-    const keepalive = setInterval(() => res.write(': keepalive\n\n'), 15000);
+    // Real ping event every 10s — observable client-side as an onmessage,
+    // so the client's stale-stream watchdog can tell the difference between
+    // a healthy quiet connection and a zombie one held open by a proxy.
+    const keepalive = setInterval(() => {
+      res.write(`data: ${JSON.stringify({ type: 'ping', ts: Date.now() })}\n\n`);
+    }, 10000);
 
     bus.replay(send);
     const off = bus.subscribe(send);

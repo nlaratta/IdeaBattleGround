@@ -3,6 +3,7 @@ import { runTournament, getCurrent, isRunning } from '../runner.js';
 import { globalBus } from '../events/bus.js';
 import { attachSse } from '../events/sse.js';
 import { config } from '../config.js';
+import { listTournaments, loadTournamentState, loadTournamentEvents } from '../db/store.js';
 
 export function buildRouter() {
   const r = express.Router();
@@ -28,6 +29,21 @@ export function buildRouter() {
   });
 
   r.get('/api/events', attachSse(globalBus));
+
+  r.get('/api/tournaments', (_req, res) => {
+    res.json({ tournaments: listTournaments() });
+  });
+
+  r.get('/api/tournaments/:id', (req, res) => {
+    const state = loadTournamentState(req.params.id);
+    if (!state) return res.status(404).json({ error: 'not found' });
+    res.json({ tournament: state });
+  });
+
+  r.get('/api/tournaments/:id/events', (req, res) => {
+    const events = loadTournamentEvents(req.params.id);
+    res.json({ events });
+  });
 
   r.post('/api/start', express.json(), async (req, res) => {
     if (isRunning()) return res.status(409).json({ error: 'already running' });

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTournament } from './hooks/useTournament';
 import { OrbitalView } from './views/OrbitalView';
 import { TreeView } from './views/TreeView';
@@ -6,14 +6,24 @@ import { Leaderboard } from './components/Leaderboard';
 import { Ticker } from './components/Ticker';
 import { Inspector } from './components/Inspector';
 import { Controls } from './components/Controls';
+import { History } from './components/History';
 
 type View = 'orbital' | 'tree';
 
 export function App() {
-  const { state, start } = useTournament();
+  const { state, start, loadHistorical, goLive } = useTournament();
   const [view, setView] = useState<View>('orbital');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [historicalId, setHistoricalId] = useState<string | null>(null);
+  const [historyKey, setHistoryKey] = useState(0);
   const selected = selectedId ? state.ideas[selectedId] ?? null : null;
+
+  // Refresh history list whenever a tournament completes.
+  useEffect(() => {
+    if (state.phase === 'complete' || state.phase === 'idle') {
+      setHistoryKey((k) => k + 1);
+    }
+  }, [state.phase]);
 
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
@@ -30,7 +40,7 @@ export function App() {
         <CollapseTab side="left" open={leftOpen} onToggle={() => setLeftOpen((v) => !v)} />
         {leftOpen && (
           <>
-            <Header phase={state.phase} round={state.round} count={state.totalIdeas} alive={state.aliveCount} />
+            <Header phase={state.phase} round={state.round} count={state.totalIdeas} alive={state.aliveCount} historicalId={historicalId} />
             <Controls phase={state.phase} onStart={start} />
             <div style={{ borderTop: '1px solid #1c2030' }}>
               <Leaderboard ideas={state.ideas} selectedId={selectedId} onSelect={setSelectedId} />
@@ -64,7 +74,15 @@ export function App() {
         <CollapseTab side="right" open={rightOpen} onToggle={() => setRightOpen((v) => !v)} />
         {rightOpen && (
           <>
-            <Ticker items={state.ticker} />
+            <History
+              currentId={historicalId}
+              onLoad={async (id) => { setHistoricalId(id); setSelectedId(null); await loadHistorical(id); }}
+              onLive={() => { setHistoricalId(null); setSelectedId(null); goLive(); }}
+              reloadKey={historyKey}
+            />
+            <div style={{ borderTop: '1px solid #1c2030' }}>
+              <Ticker items={state.ticker} />
+            </div>
             {state.champions.length > 0 && (
               <div style={{ padding: 12, borderTop: '1px solid #1c2030' }}>
                 <div style={{ opacity: 0.6, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 1, fontSize: 12 }}>Champions</div>
@@ -99,10 +117,13 @@ function panel(side: 'left' | 'right'): React.CSSProperties {
   };
 }
 
-function Header({ phase, round, count, alive }: { phase: string; round: number; count: number; alive: number }) {
+function Header({ phase, round, count, alive, historicalId }: { phase: string; round: number; count: number; alive: number; historicalId: string | null }) {
   return (
     <div style={{ padding: 12, borderBottom: '1px solid #1c2030' }}>
-      <div style={{ fontWeight: 700, fontSize: 14 }}>Idea Battleground</div>
+      <div style={{ fontWeight: 700, fontSize: 14 }}>
+        Idea Battleground
+        {historicalId && <span style={{ opacity: 0.5, fontWeight: 400, fontSize: 11, marginLeft: 6 }}>viewing {historicalId.slice(0, 6)}</span>}
+      </div>
       <div style={{ opacity: 0.6, fontSize: 11, marginTop: 4 }}>
         phase: <span style={{ color: '#7CC4FF' }}>{phase}</span> · round {round} · {alive}/{count} alive
       </div>

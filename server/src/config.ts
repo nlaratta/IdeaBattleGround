@@ -1,4 +1,9 @@
-import 'dotenv/config';
+import { config as loadEnv } from 'dotenv';
+import { resolve } from 'node:path';
+
+// Try project root first, then local cwd as fallback.
+loadEnv({ path: resolve(process.cwd(), '..', '.env') });
+loadEnv();
 
 export interface Config {
   port: number;

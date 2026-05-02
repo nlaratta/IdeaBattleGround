@@ -5,10 +5,7 @@
       "name": "server",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev:server"],
-      "port": 8787,
-      "env": {
-        "MOCK_MODE": "true"
-      }
+      "port": 8787
     },
     {
       "name": "web",

@@ -149,18 +149,44 @@ export function useTournament() {
   const esRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
-    const es = new EventSource('/api/events');
-    esRef.current = es;
-    es.onmessage = (m) => {
-      try {
-        const ev = JSON.parse(m.data) as Event;
-        dispatch(ev);
-      } catch { /* noop */ }
+    let lastMessageAt = Date.now();
+    let cancelled = false;
+
+    const open = () => {
+      if (cancelled) return;
+      const es = new EventSource('/api/events');
+      esRef.current = es;
+      es.onmessage = (m) => {
+        lastMessageAt = Date.now();
+        try {
+          const parsed = JSON.parse(m.data);
+          if (parsed?.type === 'ping') return;
+          dispatch(parsed as Event);
+        } catch { /* noop */ }
+      };
+      es.onerror = () => {
+        try { es.close(); } catch { /* ignore */ }
+        if (!cancelled) setTimeout(open, 1000);
+      };
     };
-    es.onerror = () => {
-      // EventSource auto-reconnects; nothing to do
+    open();
+
+    // Watchdog: server emits keepalive comments every 15s. If we see no message
+    // (event OR comment doesn't reach onmessage; comments are silent client-side)
+    // for 30s, force-reopen — this catches the proxy-held-zombie case.
+    const watchdog = setInterval(() => {
+      if (Date.now() - lastMessageAt > 30000) {
+        try { esRef.current?.close(); } catch { /* ignore */ }
+        lastMessageAt = Date.now();
+        open();
+      }
+    }, 5000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(watchdog);
+      try { esRef.current?.close(); } catch { /* ignore */ }
     };
-    return () => es.close();
   }, []);
 
   const start = async (opts?: { ideaCount?: number; judgesPerIdea?: number; swissRounds?: number; finalists?: number; rngSeed?: number }) => {
@@ -171,5 +197,31 @@ export function useTournament() {
     });
   };
 
-  return { state, start };
+  /** Hydrate state from a stored tournament's event log. Stops live SSE while viewing history. */
+  const loadHistorical = async (id: string) => {
+    const res = await fetch(`/api/tournaments/${id}/events`);
+    const json = await res.json() as { events: Event[] };
+    // tear down SSE so live events don't bleed into the historical view
+    try { esRef.current?.close(); } catch { /* ignore */ }
+    dispatch({ type: 'tournament:start', tournamentId: id, targetCount: 0, ts: Date.now() } as Event);
+    for (const ev of json.events) dispatch(ev);
+  };
+
+  /** Reconnect to live SSE (called when user clicks "live" after viewing history). */
+  const goLive = () => {
+    try { esRef.current?.close(); } catch { /* ignore */ }
+    const es = new EventSource('/api/events');
+    esRef.current = es;
+    es.onmessage = (m) => {
+      try {
+        const parsed = JSON.parse(m.data);
+        if (parsed?.type === 'ping') return;
+        dispatch(parsed as Event);
+      } catch { /* noop */ }
+    };
+    es.onerror = () => {};
+    dispatch({ type: 'tournament:start', tournamentId: 'live', targetCount: 0, ts: Date.now() } as Event);
+  };
+
+  return { state, start, loadHistorical, goLive };
 }
