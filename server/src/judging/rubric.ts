@@ -42,7 +42,7 @@ function buildUserPrompt(idea: Idea): string {
   ].join('\n');
 }
 
-export async function scoreIdea(idea: Idea, judgeIndex: number): Promise<RubricScore | null> {
+export async function scoreIdea(idea: Idea, judgeIndex: number, model?: string): Promise<RubricScore | null> {
   const llm = getLlm();
   // Slight variation between judges via tag in system prompt
   const sysWithJudge = `${RUBRIC_SYSTEM}\n\nYou are judge #${judgeIndex + 1}. Be honest but use the persona's normal voice.`;
@@ -51,6 +51,7 @@ export async function scoreIdea(idea: Idea, judgeIndex: number): Promise<RubricS
       systemPrompt: sysWithJudge,
       userPrompt: buildUserPrompt(idea),
       retries: 1,
+      model,
     });
     const parsed = scoreSchema.safeParse(res.data);
     if (!parsed.success) return null;
@@ -66,13 +67,14 @@ export async function scoreAllIdeas(
   ideas: Idea[],
   judgesPerIdea: number,
   bus: EventBus,
+  model?: string,
 ): Promise<Record<string, RubricScore[]>> {
   const tasks: Array<{ idea: Idea; judge: number }> = [];
   for (const idea of ideas) {
     for (let j = 0; j < judgesPerIdea; j++) tasks.push({ idea, judge: j });
   }
   const results = await mapWithLimit(tasks, config.judgingConcurrency, async ({ idea, judge }) => {
-    const score = await scoreIdea(idea, judge);
+    const score = await scoreIdea(idea, judge, model);
     if (score) bus.emit({ type: 'idea:scored', ideaId: idea.id, score, ts: Date.now() });
     return { idea, score };
   });

@@ -323,7 +323,7 @@ export function useTournament() {
     };
   }, []);
 
-  const start = async (opts?: { ideaCount?: number; judgesPerIdea?: number; swissRounds?: number; finalists?: number; rngSeed?: number; cinematic?: boolean; mock?: boolean; duelMs?: number }) => {
+  const start = async (opts?: { ideaCount?: number; judgesPerIdea?: number; swissRounds?: number; finalists?: number; rngSeed?: number; cinematic?: boolean; mock?: boolean; duelMs?: number; models?: { generator: string; judge: string; deepJudge: string; taunt: string } }) => {
     await fetch('/api/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

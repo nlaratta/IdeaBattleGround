@@ -24,7 +24,7 @@ const verdictSchema = z.object({
 
 export type DeepVerdict = z.infer<typeof verdictSchema>;
 
-export async function deepReview(state: IdeaState): Promise<DeepVerdict | null> {
+export async function deepReview(state: IdeaState, model?: string): Promise<DeepVerdict | null> {
   const llm = getLlm();
   const idea = state.idea;
   try {
@@ -43,7 +43,7 @@ export async function deepReview(state: IdeaState): Promise<DeepVerdict | null> 
         'Return only JSON.',
       ].join('\n'),
       retries: 1,
-      model: config.deepJudgeModel,
+      model: model ?? config.deepJudgeModel,
     });
     const parsed = verdictSchema.safeParse(res.data);
     return parsed.success ? parsed.data : null;

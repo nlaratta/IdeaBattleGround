@@ -14,6 +14,13 @@ import { mapWithLimit } from './util/concurrent.js';
 import { config } from './config.js';
 import * as store from './db/store.js';
 
+export interface ModelOverrides {
+  generator?: string;
+  judge?: string;
+  deepJudge?: string;
+  taunt?: string;
+}
+
 export interface TournamentOptions {
   ideaCount: number;
   judgesPerIdea: number;
@@ -24,6 +31,8 @@ export interface TournamentOptions {
   cinematic?: boolean;
   /** Per-duel pause when cinematic. Defaults to 2500. */
   duelMs?: number;
+  /** Per-phase model overrides. Aliases (sonnet/opus/haiku) or full model IDs. */
+  models?: ModelOverrides;
 }
 
 const DEFAULTS: TournamentOptions = {
@@ -63,9 +72,11 @@ export async function runTournament(opts: Partial<TournamentOptions> | undefined
   store.insertTournament(tournament.id, tournament.startedAt, o);
   bus.emit({ type: 'tournament:start', tournamentId: tournament.id, targetCount: o.ideaCount, cinematic: !!o.cinematic, ts: Date.now() });
 
+  const models = o.models ?? {};
+
   try {
     setPhase(tournament, 'generating', bus);
-    const ideas = await generateIdeas(o.ideaCount, bus, o.rngSeed);
+    const ideas = await generateIdeas(o.ideaCount, bus, o.rngSeed, models.generator);
     // Stash all generated ideas — even ones that get culled — so the DB has full provenance.
     for (const idea of ideas) {
       const pos = layoutIdea(idea);
@@ -96,7 +107,7 @@ export async function runTournament(opts: Partial<TournamentOptions> | undefined
     }
 
     setPhase(tournament, 'rubric', bus);
-    const scoresById = await scoreAllIdeas(kept, o.judgesPerIdea, bus);
+    const scoresById = await scoreAllIdeas(kept, o.judgesPerIdea, bus, models.judge);
     for (const [id, scores] of Object.entries(scoresById)) {
       const state = tournament.ideas[id];
       if (!state) continue;
@@ -148,9 +159,9 @@ export async function runTournament(opts: Partial<TournamentOptions> | undefined
         const isMockMode = config.mockMode;
         for (const [a, b] of pairs) {
           bus.emit({ type: 'duel:start', aId: a.idea.id, bId: b.idea.id, round: tournament.round, expectedMs: o.duelMs ?? 2500, ts: Date.now() });
-          const judgePromise = judgePairSilent(a, b, bus);
+          const judgePromise = judgePairSilent(a, b, bus, models.judge);
           // Generate a taunt in parallel — fire-and-forget, emitted whenever it lands.
-          generateTaunt(a, b, isMockMode).then((quote) => {
+          generateTaunt(a, b, isMockMode, models.taunt).then((quote) => {
             if (quote) bus.emit({ type: 'duel:taunt', aId: a.idea.id, bId: b.idea.id, quote, ts: Date.now() });
           }).catch(() => { /* taunts are decorative; never crash on failure */ });
           await sleep(o.duelMs ?? 2500);
@@ -161,7 +172,7 @@ export async function runTournament(opts: Partial<TournamentOptions> | undefined
           }
         }
       } else {
-        results = await runSwissRound(alive, bus);
+        results = await runSwissRound(alive, bus, models.judge);
       }
       tournament.pairwiseRoundsRun++;
       for (const res of results) {
@@ -194,7 +205,7 @@ export async function runTournament(opts: Partial<TournamentOptions> | undefined
       ? await (async () => {
           const out: Array<{ state: typeof finalists[number]; verdict: Awaited<ReturnType<typeof deepReview>> }> = [];
           for (const state of finalists) {
-            const verdict = await deepReview(state);
+            const verdict = await deepReview(state, models.deepJudge);
             out.push({ state, verdict });
             await sleep(1200);
           }
@@ -202,7 +213,7 @@ export async function runTournament(opts: Partial<TournamentOptions> | undefined
         })()
       : await mapWithLimit(finalists, config.judgingConcurrency, async (state) => ({
           state,
-          verdict: await deepReview(state),
+          verdict: await deepReview(state, models.deepJudge),
         }));
     for (const { state, verdict } of verdicts) {
       if (verdict) store.insertDeepVerdict(state.idea.id, verdict, Date.now());

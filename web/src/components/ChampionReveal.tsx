@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { IdeaState } from '../types';
 
 export interface RevealStep {
@@ -17,45 +17,64 @@ interface Props {
 const HOLD_MS = 5400;
 const FADE_MS = 600;
 
-// Sequenced reveal: for each champion, fade in card → hold → fade out → next.
+// Self-contained state machine driven only by `trigger` increments.
+// All other prop changes (callbacks, champions arrays) are tracked via refs
+// so the effect never re-fires mid-reveal.
 export function ChampionReveal({ champions, ideas, trigger, onActiveChange, onDone }: Props) {
-  const [idx, setIdx] = useState(-1);
-  const [phase, setPhase] = useState<'in' | 'hold' | 'out'>('in');
+  const [active, setActive] = useState<RevealStep | null>(null);
+
+  const cbRef = useRef({ onActiveChange, onDone });
+  cbRef.current = { onActiveChange, onDone };
+  const championsRef = useRef(champions);
+  championsRef.current = champions;
 
   useEffect(() => {
     if (!trigger) return;
-    if (champions.length === 0) { onDone(); return; }
-    setIdx(0);
-    setPhase('in');
-  }, [trigger, champions.length]);
+    const list = championsRef.current;
+    if (list.length === 0) { cbRef.current.onDone(); return; }
 
-  useEffect(() => {
-    if (idx < 0 || idx >= champions.length) return;
-    onActiveChange({ ideaId: champions[idx], phase });
-    let timer: ReturnType<typeof setTimeout>;
-    if (phase === 'in') {
-      timer = setTimeout(() => setPhase('hold'), FADE_MS);
-    } else if (phase === 'hold') {
-      timer = setTimeout(() => setPhase('out'), HOLD_MS);
-    } else {
-      timer = setTimeout(() => {
-        if (idx + 1 < champions.length) {
-          setIdx(idx + 1);
-          setPhase('in');
-        } else {
-          onActiveChange(null);
-          setIdx(-1);
-          onDone();
-        }
-      }, FADE_MS);
-    }
-    return () => clearTimeout(timer);
-  }, [idx, phase, champions, onActiveChange, onDone]);
+    let cancelled = false;
+    const timeouts: ReturnType<typeof setTimeout>[] = [];
+    const wait = (ms: number) => new Promise<void>((r) => { timeouts.push(setTimeout(r, ms)); });
 
-  if (idx < 0 || idx >= champions.length) return null;
-  const s = ideas[champions[idx]];
+    (async () => {
+      for (let i = 0; i < list.length; i++) {
+        if (cancelled) return;
+        const id = list[i];
+        const step = (p: 'in' | 'hold' | 'out') => {
+          if (cancelled) return;
+          const s = { ideaId: id, phase: p };
+          setActive(s);
+          cbRef.current.onActiveChange(s);
+        };
+        step('in');
+        await wait(FADE_MS);
+        if (cancelled) return;
+        step('hold');
+        await wait(HOLD_MS);
+        if (cancelled) return;
+        step('out');
+        await wait(FADE_MS);
+      }
+      if (!cancelled) {
+        setActive(null);
+        cbRef.current.onActiveChange(null);
+        cbRef.current.onDone();
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      timeouts.forEach(clearTimeout);
+    };
+  }, [trigger]);
+
+  if (!active) return null;
+  const s = ideas[active.ideaId];
   if (!s) return null;
-  const visible = phase !== 'out';
+  const visible = active.phase !== 'out';
+  const list = championsRef.current;
+  const idx = list.indexOf(active.ideaId);
 
   return (
     <div style={{
@@ -77,7 +96,7 @@ export function ChampionReveal({ champions, ideas, trigger, onActiveChange, onDo
         textAlign: 'center',
       }}>
         <div style={{ fontSize: 11, letterSpacing: 4, opacity: 0.55, fontWeight: 700, color: '#FFE066' }}>
-          🏆 CHAMPION {idx + 1} OF {champions.length}
+          🏆 CHAMPION {idx + 1} OF {list.length}
         </div>
         <div style={{ fontSize: 28, fontWeight: 800, color: s.color, marginTop: 8, letterSpacing: 0.5 }}>
           {s.idea.pitch}

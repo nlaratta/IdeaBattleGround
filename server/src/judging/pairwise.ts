@@ -43,13 +43,14 @@ interface PairResult {
   eloDelta: number;
 }
 
-async function judgePair(a: IdeaState, b: IdeaState, bus: EventBus, opts?: { silent?: boolean }): Promise<PairResult | null> {
+export async function judgePair(a: IdeaState, b: IdeaState, bus: EventBus, opts?: { silent?: boolean; model?: string }): Promise<PairResult | null> {
   const llm = getLlm();
   try {
     const res = await llm.call({
       systemPrompt: PAIRWISE_SYSTEM,
       userPrompt: buildPairPrompt(a, b),
       retries: 1,
+      model: opts?.model,
     });
     const parsed = verdictSchema.safeParse(res.data);
     if (!parsed.success) return null;
@@ -75,8 +76,9 @@ export async function judgePairSilent(
   a: IdeaState,
   b: IdeaState,
   bus: EventBus,
+  model?: string,
 ): Promise<PairResult | null> {
-  return judgePair(a, b, bus, { silent: true });
+  return judgePair(a, b, bus, { silent: true, model });
 }
 
 /** Generate Swiss-style pairings for one round. Pair adjacent in sorted-by-elo order, alternating to avoid same-as-last. */
@@ -89,9 +91,9 @@ export function pairSwiss(states: IdeaState[]): Array<[IdeaState, IdeaState]> {
   return pairs;
 }
 
-export async function runSwissRound(states: IdeaState[], bus: EventBus): Promise<PairResult[]> {
+export async function runSwissRound(states: IdeaState[], bus: EventBus, model?: string): Promise<PairResult[]> {
   const pairs = pairSwiss(states);
-  const results = await mapWithLimit(pairs, config.judgingConcurrency, ([a, b]) => judgePair(a, b, bus));
+  const results = await mapWithLimit(pairs, config.judgingConcurrency, ([a, b]) => judgePair(a, b, bus, { model }));
   return results.filter((r): r is PairResult => r !== null);
 }
 
@@ -99,8 +101,9 @@ export async function runSwissTournament(
   states: IdeaState[],
   rounds: number,
   bus: EventBus,
+  model?: string,
 ): Promise<void> {
   for (let r = 0; r < rounds; r++) {
-    await runSwissRound(states, bus);
+    await runSwissRound(states, bus, model);
   }
 }

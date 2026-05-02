@@ -18,13 +18,14 @@ const ideaSchema = z.object({
   tags: z.array(z.string()).max(8).default([]),
 });
 
-async function generateOne(cell: SamplingCell): Promise<Idea | null> {
+async function generateOne(cell: SamplingCell, model?: string): Promise<Idea | null> {
   const llm = getLlm();
   try {
     const res = await llm.call({
       systemPrompt: GENERATOR_SYSTEM,
       userPrompt: buildGeneratorUserPrompt(cell),
       retries: 1,
+      model,
     });
     const parsed = ideaSchema.safeParse(res.data);
     if (!parsed.success) return null;
@@ -51,10 +52,11 @@ export async function generateIdeas(
   count: number,
   bus: EventBus,
   rngSeed?: number,
+  model?: string,
 ): Promise<Idea[]> {
   const cells = buildMatrix({ count, rngSeed });
   const results = await mapWithLimit(cells, config.generationConcurrency, async (cell) => {
-    const idea = await generateOne(cell);
+    const idea = await generateOne(cell, model);
     if (idea) bus.emit({ type: 'idea:generated', idea, ts: Date.now() });
     return idea;
   });

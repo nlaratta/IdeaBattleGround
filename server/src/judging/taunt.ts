@@ -21,10 +21,11 @@ const MOCK_TEMPLATES = [
   '%A%, the methodical. %B%, the unhinged. Survive or be archived.',
 ];
 
-export async function generateTaunt(a: IdeaState, b: IdeaState, _mock: boolean): Promise<string | null> {
+export async function generateTaunt(a: IdeaState, b: IdeaState, _mock: boolean, model?: string): Promise<string | null> {
   // Always go through the LLM provider — MockProvider knows how to serve a
-  // taunt with templates, AgentSdkProvider hits Haiku. The runner-side `mock`
-  // flag is informational; the active provider already reflects mock-vs-live.
+  // taunt with templates, AgentSdkProvider hits the configured model. The
+  // runner-side `mock` flag is informational; the active provider already
+  // reflects mock-vs-live.
   try {
     const llm = getLlm();
     const userText = `Idea A: ${a.idea.pitch} — ${a.idea.mechanism}\nIdea B: ${b.idea.pitch} — ${b.idea.mechanism}\nReturn only JSON.`;
@@ -32,7 +33,7 @@ export async function generateTaunt(a: IdeaState, b: IdeaState, _mock: boolean):
       systemPrompt: TAUNT_SYSTEM,
       userPrompt: userText,
       retries: 1,
-      model: 'haiku',
+      model: model ?? 'haiku',
     });
     const parsed = schema.safeParse(res.data);
     if (parsed.success) {
