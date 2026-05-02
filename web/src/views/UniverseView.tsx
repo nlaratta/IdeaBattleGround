@@ -204,6 +204,15 @@ function DuelOverlay({ ideas, duel }: DuelOverlayProps) {
   );
 }
 
+// Frame-rate-independent exponential damping. rate=2 means ~63% of the
+// remaining gap is closed per second; rate=4 closes faster.
+function dampToward(current: THREE.Vector3, target: THREE.Vector3, rate: number, dt: number) {
+  const k = 1 - Math.exp(-rate * dt);
+  current.x += (target.x - current.x) * k;
+  current.y += (target.y - current.y) * k;
+  current.z += (target.z - current.z) * k;
+}
+
 function CinematicCamera({
   ideas,
   activeDuel,
@@ -218,29 +227,30 @@ function CinematicCamera({
   reveal: { ideaId: string; phase: 'in' | 'hold' | 'out' } | null;
 }) {
   const { camera } = useThree();
-  const targetPos = useRef(new THREE.Vector3(0, 5, 8));
-  const targetLook = useRef(new THREE.Vector3(0, 0, 0));
+  // Desired (where we want camera/look to be this frame). Recomputed each frame.
+  const desiredPos = useRef(new THREE.Vector3(0, 5, 8));
+  const desiredLook = useRef(new THREE.Vector3(0, 0, 0));
+  // Smoothed (what we actually apply, lerped toward desired with damping).
+  const smoothedPos = useRef(new THREE.Vector3(0, 5, 8));
+  const smoothedLook = useRef(new THREE.Vector3(0, 0, 0));
+  // Snap-on-first-frame so initial mount lands at the right framing instead
+  // of the smoothed position dollying in from the default location.
+  const initializedRef = useRef(false);
 
   useFrame((_, dt) => {
     const t = performance.now() * 0.0001;
 
+    // === Compute desired pos + look based on current state ===
     if (reveal) {
-      // Slow close-up dolly around the revealed champion
       const s = ideas[reveal.ideaId];
       if (s) {
         const center = new THREE.Vector3(s.position.x * SCALE, 0, s.position.y * SCALE);
-        const orbit = t * 2;
+        const orbit = t * 1.4; // slower swirl
         const dist = 3.4;
-        targetPos.current.set(center.x + Math.cos(orbit) * dist, 1.6, center.z + Math.sin(orbit) * dist);
-        targetLook.current.copy(center).setY(0.4);
-        camera.position.lerp(targetPos.current, Math.min(1, dt * 1.6));
-        camera.lookAt(targetLook.current);
-        return;
+        desiredPos.current.set(center.x + Math.cos(orbit) * dist, 1.6, center.z + Math.sin(orbit) * dist);
+        desiredLook.current.copy(center).setY(0.4);
       }
-    }
-
-    if (activeDuel) {
-      // Slow orbit two-shot of the duel midpoint, with enough distance for the card.
+    } else if (activeDuel) {
       const a = ideas[activeDuel.aId];
       const b = ideas[activeDuel.bId];
       if (a && b) {
@@ -249,35 +259,34 @@ function CinematicCamera({
           0,
           ((a.position.y + b.position.y) / 2) * SCALE,
         );
-        const dirVec = new THREE.Vector3((b.position.x - a.position.x) * SCALE, 0, (b.position.y - a.position.y) * SCALE).normalize();
+        const dirVec = new THREE.Vector3(
+          (b.position.x - a.position.x) * SCALE, 0, (b.position.y - a.position.y) * SCALE,
+        ).normalize();
         const perp = new THREE.Vector3(-dirVec.z, 0, dirVec.x);
-        const orbitT = t * 2.5;
-        // Pulled back — base 5 units perp, 4.5 along axis, height 3.2.
+        const orbitT = t * 1.6; // slower duel orbit (was 2.5)
         const offset = perp.multiplyScalar(4.6 * Math.cos(orbitT))
           .add(new THREE.Vector3(0, 3.2, 0))
           .add(dirVec.clone().multiplyScalar(4.6 * Math.sin(orbitT)));
-        targetPos.current.copy(mid).add(offset);
-        targetLook.current.copy(mid);
+        desiredPos.current.copy(mid).add(offset);
+        desiredLook.current.copy(mid);
       }
     } else if (phase === 'deep' && champions.length > 0) {
-      // Slow orbit centered on the champion cluster
       const positions = champions.map((id) => ideas[id]).filter(Boolean).map((s) => s.position);
       const cx = positions.reduce((s, p) => s + p.x, 0) / Math.max(1, positions.length);
       const cz = positions.reduce((s, p) => s + p.y, 0) / Math.max(1, positions.length);
       const center = new THREE.Vector3(cx * SCALE, 0, cz * SCALE);
-      const orbit = t * 3;
-      targetPos.current.set(center.x + Math.cos(orbit) * 5, 3.2, center.z + Math.sin(orbit) * 5);
-      targetLook.current.copy(center);
+      const orbit = t * 1.8; // slower (was 3)
+      desiredPos.current.set(center.x + Math.cos(orbit) * 5, 3.2, center.z + Math.sin(orbit) * 5);
+      desiredLook.current.copy(center);
     } else {
-      // Wide aerial drifting around the alive cluster centroid
       const alive = Object.values(ideas).filter((s) => s.alive);
       if (alive.length === 0) {
-        targetPos.current.set(8 * Math.cos(t * 6), 6, 8 * Math.sin(t * 6));
-        targetLook.current.set(0, 0, 0);
+        const orbit = t * 3.5;
+        desiredPos.current.set(8 * Math.cos(orbit), 6, 8 * Math.sin(orbit));
+        desiredLook.current.set(0, 0, 0);
       } else {
         const cx = alive.reduce((s, i) => s + i.position.x, 0) / alive.length * SCALE;
         const cz = alive.reduce((s, i) => s + i.position.y, 0) / alive.length * SCALE;
-        // Distance based on cluster spread
         let maxDist = 0;
         for (const s of alive) {
           const dx = s.position.x * SCALE - cx;
@@ -285,18 +294,28 @@ function CinematicCamera({
           const d = Math.hypot(dx, dz);
           if (d > maxDist) maxDist = d;
         }
-        const orbit = t * 4;
+        const orbit = t * 2.2; // slower (was 4)
         const baseDist = Math.max(6, maxDist * 1.6 + 3);
-        targetPos.current.set(cx + Math.cos(orbit) * baseDist, baseDist * 0.6, cz + Math.sin(orbit) * baseDist);
-        targetLook.current.set(cx, 0, cz);
+        desiredPos.current.set(cx + Math.cos(orbit) * baseDist, baseDist * 0.6, cz + Math.sin(orbit) * baseDist);
+        desiredLook.current.set(cx, 0, cz);
       }
     }
 
-    camera.position.lerp(targetPos.current, Math.min(1, dt * 1.6));
-    const currentLook = new THREE.Vector3();
-    camera.getWorldDirection(currentLook).add(camera.position);
-    currentLook.lerp(targetLook.current, Math.min(1, dt * 2.5));
-    camera.lookAt(targetLook.current);
+    // === Smooth toward desired with frame-rate-independent damping ===
+    // Position rate ≈ 2.5/s gives ~92% closure in 1s; gap-closure feels
+    // kinetic but not snappy. Look rate slightly higher so orientation
+    // catches up faster than the dolly when a duel ends and the next begins.
+    if (!initializedRef.current) {
+      smoothedPos.current.copy(desiredPos.current);
+      smoothedLook.current.copy(desiredLook.current);
+      initializedRef.current = true;
+    } else {
+      dampToward(smoothedPos.current, desiredPos.current, 2.5, dt);
+      dampToward(smoothedLook.current, desiredLook.current, 3.5, dt);
+    }
+
+    camera.position.copy(smoothedPos.current);
+    camera.lookAt(smoothedLook.current);
   });
   return null;
 }
