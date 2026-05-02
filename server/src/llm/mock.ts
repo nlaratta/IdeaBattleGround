@@ -1,27 +1,83 @@
 import type { LlmCall, LlmProvider, LlmResult } from './index.js';
 
-const SAMPLE_PITCHES = [
-  ['Pocket Tide', 'Predict riptides on your beach using crowdsourced wave-cam frames and a tiny on-device CNN.', 'beach-goers, surfers', 'beach drownings spike each year', 'data sparsity in offshore zones', 'safety', ['ml','geo','b2c']],
-  ['Choreboard', 'A magnetic fridge tablet that lets families assign and complete chores via wipe gestures.', 'parents of kids 6-12', 'cheap e-ink panels finally reliable', 'kids will sabotage the gestures', 'family', ['hardware','consumer']],
-  ['DriftDocs', 'Live drift-typing notes that fade unless you keep editing — forces you to keep momentum on a draft.', 'writers, students', 'attention crises and writer block', 'might infuriate perfectionists', 'productivity', ['saas','writing']],
-  ['Ambient Lawyer', 'A passive listener that flags risky clauses in a meeting in real time, only audible to one earbud.', 'startup founders', 'cheap inference + earbuds + meeting glut', 'recording laws vary by state', 'legal', ['ai','b2b']],
-  ['Foragr', 'Map of urban edible plants validated by a botanist DAO, with seasonal pop-ups.', 'urban foragers, food curious', 'food costs + foraging revival', 'liability if someone misidentifies', 'food', ['social','geo']],
-  ['Kitchen Kabuki', 'Recipe app that teaches you a dish via theatrical voice cues and dramatic timer chimes.', 'home cooks who like media', 'cooking-as-entertainment trend', 'might be too goofy for repeat use', 'food', ['consumer','audio']],
-  ['Dust Trail', 'Wearable that pings you when your kid is more than X meters away in a crowd, P2P mesh, no GPS needed.', 'parents at theme parks', 'mesh radios got cheap', 'battery life on tiny wearables', 'safety', ['hardware','iot']],
-  ['Moot Court Sim', 'AI sparring partner for law students that argues opposing positions in real-time mock trials.', 'law students', 'AI good enough at legal reasoning', 'might encode bad case law', 'edu', ['ai','edu']],
-  ['Refrigerator Diary', 'Snap your fridge weekly; AI tracks waste patterns and nudges grocery list changes.', 'households trying to budget', 'food waste + grocery inflation', 'photo upload friction', 'food', ['ai','consumer']],
-  ['Boring Co-op', 'Match co-working sessions for boring solo tasks (taxes, paperwork) — body doubling but with a timer.', 'ADHD freelancers', 'remote work loneliness', 'matching at low scale', 'productivity', ['social','saas']],
-  ['Soundprint', 'A privacy-first hum-to-search for finding "that song from the cafe" without uploading audio anywhere.', 'music lovers privacy minded', 'on-device audio fingerprinting', 'fingerprint coverage limits', 'media', ['privacy','consumer']],
-  ['Granny Telemetry', 'Senior care app that watches movement patterns via a single camera, no wearable, alerts on falls/changes.', 'adult children of aging parents', 'demographics + camera ML', 'creepy if not framed right', 'health', ['ml','consumer']],
-  ['Phantom Inbox', 'Email client that pretends to send replies but holds them for 30 minutes — undo by default.', 'email-anxiety power users', 'AI summarization makes recall ok', 'expectations of instant delivery', 'productivity', ['saas','email']],
-  ['Trade School Tinder', 'Match aspiring tradespeople with master craftspeople for short shadowing days.', 'career switchers', 'trade labor shortage', 'liability and insurance', 'edu', ['marketplace','social']],
-  ['Lemonade Stand DAO', 'Let kids run real lemonade stands with parental smart-contract custody for earnings.', 'parents teaching finance', 'crypto rails finally usable', 'parents skeptical of crypto', 'finance', ['edu','crypto']],
-  ['Forensic Linter', 'CI bot that explains in plain English what each test failure is actually telling you.', 'overworked devs', 'flaky test pain', 'verbose noise', 'devtools', ['ai','b2b']],
-  ['Whispernet', 'Hyperlocal anonymous bulletin board scoped to your apartment building.', 'apartment dwellers', 'community in cities collapsing', 'moderation hard at small scale', 'social', ['social','geo']],
-  ['Bedside Cipher', 'A tiny e-ink puzzle box you solve before bed to stop doomscrolling.', 'phone-addicted adults', 'attention reform', 'people just won\'t use it', 'health', ['hardware','consumer']],
-  ['Reverse Yelp', 'Restaurants leave honest reviews of customer behavior — visible only to other restaurants.', 'restaurant owners', 'restaurant labor crunch', 'becomes blacklist nightmare', 'food', ['b2b','social']],
-  ['Time Tax', 'A subscription that fines you for wasted hours on certain apps and donates to a cause you set.', 'self-improvement crowd', 'commitment devices popular', 'creepy data access', 'productivity', ['saas','consumer']],
+// Combinatorial pitch generator — produces tens of thousands of unique
+// pitch+mechanism+target combinations, deterministic for a given seed.
+
+const PREFIXES = [
+  'Pocket','Whisper','Drift','Glade','Ember','Lantern','Forge','Iron','Vellum','Thicket',
+  'Neon','Quiet','Loud','Soft','Iron','Tundra','Chrome','Brume','Shadow','Hollow',
+  'Stark','Murmur','Lattice','Cinder','Spire','Plinth','Velvet','Verdant','Halcyon','Granite',
+  'Ash','Auburn','Bramble','Citadel','Driftwood','Echo','Faraway','Gilded','Honeyed','Indigo',
+  'Jade','Kaleidoscope','Lichen','Marigold','Nimbus','Onyx','Pewter','Quartz','Russet','Sable',
 ];
+const NOUNS = [
+  'Tide','Loom','Ledger','Shelter','Rink','Codex','Lighthouse','Pantry','Conservatory','Atlas',
+  'Compass','Almanac','Embassy','Quarry','Forum','Treasury','Foundry','Apothecary','Greenhouse','Reserve',
+  'Beacon','Crucible','Drydock','Echo','Furrow','Garrison','Hearth','Inkwell','Jubilee','Keepsake',
+  'Lyceum','Manor','Niche','Outpost','Parlor','Quintet','Refuge','Sanctum','Telegraph','Underbrush',
+  'Vault','Workshop','Xenon','Yardstick','Zephyr','Cartograph','Daystar','Etcher','Filament','Granary',
+];
+const MOD_SUFFIXES = [
+  '','Co','HQ','+','Studio','Lab','Works','House','Yard','Bureau','Press','Trust',
+  'OS','Loop','Net','Field','Park','Society','Guild','Company','League','Cooperative','Outfit','Hall',
+];
+const MECH_TEMPLATES = [
+  'A %TECH% that %ACTION% for %USER% by quietly %DETAIL%, billed via %MODEL%.',
+  'Local-first %SURFACE% that %ACTION% — never uploads, runs on %TECH%, makes %DETAIL% finally tractable.',
+  'A %SHAPE% that pairs %TECH% with %ACTION% so %USER% can %BENEFIT% without %FRICTION%.',
+  '%TECH% on a %SURFACE%; you %ACTION% and it %DETAIL%, %MODEL% only after %BENEFIT% lands.',
+  'Cooperative %SURFACE% where %USER% %ACTION% in short bursts, then %DETAIL% once a quorum signs off.',
+  'Background %SHAPE% that watches %TECH% all day and %ACTION%, surfacing only when %DETAIL% threshold trips.',
+];
+const TECH = ['CV pipeline','tiny on-device LLM','LoRa mesh','MIDI listener','OCR loop','vector store','event log','signed RSS feed','printable QR menu','passive radar','sub-GHz radio'];
+const ACTION = ['catalogs','rebalances','arbitrages','rehearses','negotiates','escrows','annotates','triages','sketches','rehydrates'];
+const USER = ['solo founders','aging artisans','remote-only teams','rural commuters','gig caregivers','urban anglers','gym-skipping retirees','part-time educators','first-time parents','overcommitted hobbyists'];
+const DETAIL = ['stitching tax-grade timestamps','reconciling six accounting axioms','flagging anomalous gait','redacting PII inline','summarizing a week in 14 words','bundling micro-payouts'];
+const MODEL_BIZ = ['pay-per-use','co-op dues','one-time hardware','seat licenses','annual pre-pay','revenue share','sponsorship'];
+const SURFACE = ['e-ink slab','fridge tablet','bench-mounted dial','keychain dongle','headphone shell','projector strip','sleeve patch','calendar widget','desk runner'];
+const SHAPE = ['ritual','marketplace','journal','primer','almanac','compass'];
+const BENEFIT = ['close the loop','keep the lights on','hold the streak','make it ship','cool the room','find the missing piece'];
+const FRICTION = ['a Zoom call','a hidden subscription','an AWS bill','an unread inbox','a four-hour onboarding','an offline outage'];
+const TARGETS = [
+  'rural broadband holdouts','small-town librarians','first-gen college kids','bartenders rebooting careers','independent vets in vet deserts',
+  'former teachers in second acts','solo product designers','side-project hardware tinkerers','off-grid retirees','community gardeners',
+  'community college adjuncts','single dads of toddlers','recent immigrants in trades','fishing co-ops in coastal towns','rural EMTs',
+];
+const WHYNOW = [
+  'cheap inference finally crossed below 10¢ a query',
+  'GenZ\'s phone-fatigue wave just turned mainstream',
+  'post-pandemic trades labor shortage made on-site coaching premium',
+  'new EU offline-first guidance unlocked GDPR-clean tooling',
+  'open-weight code models now sketch firmware in seconds',
+  'satellite image cadence dropped from weekly to hourly',
+];
+const RISK = [
+  'liability the moment a single false negative becomes a tort',
+  'TAM looks great in interviews but collapses on actual conversion',
+  'requires regulatory novelty most local boards aren\'t ready for',
+  'competing with a free Excel template most users already have',
+  'creates a rumor mill any moderation budget can\'t police',
+  'works only in the four metros where supply density is over 200 nodes',
+];
+const CATEGORIES = [
+  'productivity','health','food','edu','social','finance','creative','travel','home','media',
+  'devtools','science','civic','climate','safety','pets','fitness','fashion','hardware','ai',
+  'compliance','marketplace','agri-science','fintech','edtech','climate hardware','pet health',
+];
+const TAG_POOL = ['ml','geo','b2c','b2b','hardware','iot','privacy','consumer','saas','marketplace','social','open-source','offline-first','crypto','ad-supported','subscription','co-op'];
+
+function fill(template: string, rng: () => number): string {
+  return template
+    .replace(/%TECH%/g, () => TECH[Math.floor(rng() * TECH.length)])
+    .replace(/%ACTION%/g, () => ACTION[Math.floor(rng() * ACTION.length)])
+    .replace(/%USER%/g, () => USER[Math.floor(rng() * USER.length)])
+    .replace(/%DETAIL%/g, () => DETAIL[Math.floor(rng() * DETAIL.length)])
+    .replace(/%MODEL%/g, () => MODEL_BIZ[Math.floor(rng() * MODEL_BIZ.length)])
+    .replace(/%SURFACE%/g, () => SURFACE[Math.floor(rng() * SURFACE.length)])
+    .replace(/%SHAPE%/g, () => SHAPE[Math.floor(rng() * SHAPE.length)])
+    .replace(/%BENEFIT%/g, () => BENEFIT[Math.floor(rng() * BENEFIT.length)])
+    .replace(/%FRICTION%/g, () => FRICTION[Math.floor(rng() * FRICTION.length)]);
+}
 
 export class MockProvider implements LlmProvider {
   private callCount = 0;
@@ -46,18 +102,20 @@ export class MockProvider implements LlmProvider {
   }
 
   private generateIdea<T>(_userPrompt: string): LlmResult<T> {
-    const sample = SAMPLE_PITCHES[Math.floor(this.rng() * SAMPLE_PITCHES.length)];
-    const [title, mech, user, why, risk, cat, tags] = sample;
-    const variant = Math.floor(this.rng() * 9999);
-    const data = {
-      pitch: `${title} (#${variant})`,
-      mechanism: mech,
-      targetUser: user,
-      whyNow: why,
-      biggestRisk: risk,
-      category: cat,
-      tags,
-    };
+    const rng = this.rng;
+    const prefix = PREFIXES[Math.floor(rng() * PREFIXES.length)];
+    const noun = NOUNS[Math.floor(rng() * NOUNS.length)];
+    const suffix = MOD_SUFFIXES[Math.floor(rng() * MOD_SUFFIXES.length)];
+    const pitch = suffix ? `${prefix} ${noun} ${suffix}` : `${prefix} ${noun}`;
+    const mechTemplate = MECH_TEMPLATES[Math.floor(rng() * MECH_TEMPLATES.length)];
+    const mechanism = fill(mechTemplate, rng);
+    const targetUser = TARGETS[Math.floor(rng() * TARGETS.length)];
+    const whyNow = WHYNOW[Math.floor(rng() * WHYNOW.length)];
+    const biggestRisk = RISK[Math.floor(rng() * RISK.length)];
+    const category = CATEGORIES[Math.floor(rng() * CATEGORIES.length)];
+    const tagCount = 1 + Math.floor(rng() * 3);
+    const tags = Array.from({ length: tagCount }, () => TAG_POOL[Math.floor(rng() * TAG_POOL.length)]);
+    const data = { pitch, mechanism, targetUser, whyNow, biggestRisk, category, tags };
     return { data: data as T, raw: JSON.stringify(data) };
   }
 

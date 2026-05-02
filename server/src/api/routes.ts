@@ -4,6 +4,7 @@ import { globalBus } from '../events/bus.js';
 import { attachSse } from '../events/sse.js';
 import { config } from '../config.js';
 import { listTournaments, loadTournamentState, loadTournamentEvents } from '../db/store.js';
+import { setMockOverride } from '../llm/factory.js';
 
 export function buildRouter() {
   const r = express.Router();
@@ -47,8 +48,11 @@ export function buildRouter() {
 
   r.post('/api/start', express.json(), async (req, res) => {
     if (isRunning()) return res.status(409).json({ error: 'already running' });
-    const opts = req.body ?? {};
+    const { mock, ...opts } = req.body ?? {};
     res.json({ accepted: true });
+    // Apply per-run mock override (true/false explicitly, or undefined → follow env).
+    if (typeof mock === 'boolean') setMockOverride(mock);
+    else setMockOverride(null);
     runTournament(opts, globalBus).catch((err) => {
       globalBus.emit({ type: 'log', level: 'error', msg: `tournament error: ${(err as Error).message}`, ts: Date.now() });
     });

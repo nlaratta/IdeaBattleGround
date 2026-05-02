@@ -43,7 +43,7 @@ interface PairResult {
   eloDelta: number;
 }
 
-async function judgePair(a: IdeaState, b: IdeaState, bus: EventBus): Promise<PairResult | null> {
+async function judgePair(a: IdeaState, b: IdeaState, bus: EventBus, opts?: { silent?: boolean }): Promise<PairResult | null> {
   const llm = getLlm();
   try {
     const res = await llm.call({
@@ -62,15 +62,25 @@ async function judgePair(a: IdeaState, b: IdeaState, bus: EventBus): Promise<Pai
     winner.wins += 1;
     loser.losses += 1;
     const out = { winnerId: winner.idea.id, loserId: loser.idea.id, reason: parsed.data.reason, eloDelta: delta };
-    bus.emit({ type: 'pairwise:result', ...out, ts: Date.now() });
+    if (!opts?.silent) bus.emit({ type: 'pairwise:result', ...out, ts: Date.now() });
     return out;
   } catch {
     return null;
   }
 }
 
+// Exported version for cinematic runs: judges silently so the runner can
+// emit pairwise:result on its own pacing (after the duel animation window).
+export async function judgePairSilent(
+  a: IdeaState,
+  b: IdeaState,
+  bus: EventBus,
+): Promise<PairResult | null> {
+  return judgePair(a, b, bus, { silent: true });
+}
+
 /** Generate Swiss-style pairings for one round. Pair adjacent in sorted-by-elo order, alternating to avoid same-as-last. */
-function pairSwiss(states: IdeaState[]): Array<[IdeaState, IdeaState]> {
+export function pairSwiss(states: IdeaState[]): Array<[IdeaState, IdeaState]> {
   const sorted = [...states].sort((x, y) => y.elo - x.elo);
   const pairs: Array<[IdeaState, IdeaState]> = [];
   for (let i = 0; i + 1 < sorted.length; i += 2) {

@@ -2,14 +2,18 @@ import { useState } from 'react';
 
 interface Props {
   phase: string;
-  onStart: (opts: { ideaCount: number; judgesPerIdea: number; swissRounds: number; finalists: number }) => void;
+  onStart: (opts: { ideaCount: number; judgesPerIdea: number; swissRounds: number; finalists: number; cinematic?: boolean; mock?: boolean; duelMs?: number }) => void;
+  defaultCinematic?: boolean;
 }
 
-export function Controls({ phase, onStart }: Props) {
-  const [ideaCount, setIdeaCount] = useState(30);
+export function Controls({ phase, onStart, defaultCinematic }: Props) {
+  const [ideaCount, setIdeaCount] = useState(20);
   const [judgesPerIdea, setJudgesPerIdea] = useState(2);
-  const [swissRounds, setSwissRounds] = useState(4);
-  const [finalists, setFinalists] = useState(6);
+  const [swissRounds, setSwissRounds] = useState(3);
+  const [finalists, setFinalists] = useState(4);
+  const [cinematic, setCinematic] = useState(defaultCinematic ?? true);
+  const [duelMs, setDuelMs] = useState(2500);
+  const [mock, setMock] = useState(false);
 
   const running = phase !== 'idle' && phase !== 'complete';
 
@@ -20,9 +24,12 @@ export function Controls({ phase, onStart }: Props) {
       <Row label="judges/idea" value={judgesPerIdea} onChange={setJudgesPerIdea} min={1} max={5} />
       <Row label="swiss rounds" value={swissRounds} onChange={setSwissRounds} min={1} max={8} />
       <Row label="finalists" value={finalists} onChange={setFinalists} min={2} max={16} />
+      {cinematic && <Row label="duel ms" value={duelMs} onChange={setDuelMs} min={500} max={6000} step={250} />}
+      <ToggleRow label="cinematic" value={cinematic} onChange={setCinematic} />
+      <ToggleRow label="mock (this run)" value={mock} onChange={setMock} />
       <button
         disabled={running}
-        onClick={() => onStart({ ideaCount, judgesPerIdea, swissRounds, finalists })}
+        onClick={() => onStart({ ideaCount, judgesPerIdea, swissRounds, finalists, cinematic, mock, duelMs })}
         style={{
           marginTop: 6,
           background: running ? '#2a2e3a' : '#3a4f7a',
@@ -34,6 +41,26 @@ export function Controls({ phase, onStart }: Props) {
           fontWeight: 600,
         }}
       >{running ? `running… (${phase})` : 'start tournament'}</button>
+    </div>
+  );
+}
+
+function ToggleRow({ label, value, onChange }: { label: string; value: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <span style={{ width: 110, opacity: 0.7 }}>{label}</span>
+      <button
+        onClick={() => onChange(!value)}
+        style={{
+          background: value ? '#3a4f7a' : '#1a1d28',
+          color: '#dfe3ee',
+          border: '1px solid #2a3550',
+          borderRadius: 4,
+          padding: '3px 10px',
+          fontSize: 11,
+          cursor: 'pointer',
+        }}
+      >{value ? 'on' : 'off'}</button>
     </div>
   );
 }

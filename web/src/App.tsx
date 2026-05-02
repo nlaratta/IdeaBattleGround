@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useTournament } from './hooks/useTournament';
 import { OrbitalView3D } from './views/OrbitalView3D';
+import { UniverseView } from './views/UniverseView';
 import { TreeView } from './views/TreeView';
 import { Leaderboard } from './components/Leaderboard';
 import { Ticker } from './components/Ticker';
@@ -8,11 +9,11 @@ import { Inspector } from './components/Inspector';
 import { Controls } from './components/Controls';
 import { History } from './components/History';
 
-type View = 'orbital' | 'tree';
+type View = 'universe' | 'orbital' | 'tree';
 
 export function App() {
   const { state, start, loadHistorical, goLive } = useTournament();
-  const [view, setView] = useState<View>('orbital');
+  const [view, setView] = useState<View>('universe');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [historicalId, setHistoricalId] = useState<string | null>(null);
   const [historyKey, setHistoryKey] = useState(0);
@@ -41,7 +42,7 @@ export function App() {
         {leftOpen && (
           <>
             <Header phase={state.phase} round={state.round} count={state.totalIdeas} alive={state.aliveCount} historicalId={historicalId} />
-            <Controls phase={state.phase} onStart={start} />
+            <Controls phase={state.phase} onStart={start} defaultCinematic={view === 'universe'} />
             <div style={{ borderTop: '1px solid #1c2030' }}>
               <Leaderboard ideas={state.ideas} selectedId={selectedId} onSelect={setSelectedId} />
             </div>
@@ -54,10 +55,21 @@ export function App() {
 
       <main style={{ position: 'relative', overflow: 'hidden' }}>
         <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 5, display: 'flex', gap: 4, background: 'rgba(20,22,30,0.7)', padding: 4, borderRadius: 6 }}>
+          <ViewBtn label="universe" active={view === 'universe'} onClick={() => setView('universe')} />
           <ViewBtn label="orbital" active={view === 'orbital'} onClick={() => setView('orbital')} />
           <ViewBtn label="tree" active={view === 'tree'} onClick={() => setView('tree')} />
         </div>
-        {view === 'orbital' ? (
+        {view === 'universe' ? (
+          <UniverseView
+            ideas={state.ideas}
+            pairFlashes={state.pairFlashes}
+            killBursts={state.killBursts}
+            champions={state.champions}
+            activeDuel={state.activeDuel}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+          />
+        ) : view === 'orbital' ? (
           <OrbitalView3D
             ideas={state.ideas}
             pairFlashes={state.pairFlashes}

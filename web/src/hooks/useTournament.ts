@@ -15,6 +15,14 @@ interface KillBurst {
   ts: number;
 }
 
+export interface ActiveDuel {
+  aId: string;
+  bId: string;
+  round: number;
+  startedAt: number;
+  expectedMs: number;
+}
+
 interface State {
   phase: RoundPhase;
   round: number;
@@ -28,6 +36,8 @@ interface State {
   aliveCount: number;
   startedAt: number | null;
   recentEloDeltas: { ideaId: string; delta: number; ts: number }[];
+  activeDuel: ActiveDuel | null;
+  cinematic: boolean;
 }
 
 const initialState: State = {
@@ -43,12 +53,14 @@ const initialState: State = {
   aliveCount: 0,
   startedAt: null,
   recentEloDeltas: [],
+  activeDuel: null,
+  cinematic: false,
 };
 
 function reducer(state: State, ev: Event): State {
   switch (ev.type) {
     case 'tournament:start':
-      return { ...initialState, startedAt: ev.ts, totalIdeas: 0 };
+      return { ...initialState, startedAt: ev.ts, totalIdeas: 0, cinematic: !!ev.cinematic };
     case 'phase:change':
       return { ...state, phase: ev.phase, ticker: pushTicker(state.ticker, `phase: ${ev.phase}`, 'phase', ev.ts) };
     case 'idea:generated': {
@@ -95,6 +107,13 @@ function reducer(state: State, ev: Event): State {
         ticker: pushTicker(state.ticker, `${s.idea.pitch} eliminated (${ev.reason})`, 'kill', ev.ts),
       };
     }
+    case 'duel:start': {
+      return {
+        ...state,
+        activeDuel: { aId: ev.aId, bId: ev.bId, round: ev.round, startedAt: ev.ts, expectedMs: ev.expectedMs },
+        ticker: pushTicker(state.ticker, `duel: ${state.ideas[ev.aId]?.idea.pitch ?? '?'} vs ${state.ideas[ev.bId]?.idea.pitch ?? '?'}`, 'duel', ev.ts),
+      };
+    }
     case 'pairwise:result': {
       const w = state.ideas[ev.winnerId];
       const l = state.ideas[ev.loserId];
@@ -108,11 +127,17 @@ function reducer(state: State, ev: Event): State {
         { ideaId: ev.loserId, delta: -ev.eloDelta, ts: ev.ts },
         ...state.recentEloDeltas,
       ].slice(0, 30);
+      // Clear active duel if it matches.
+      const activeDuel = state.activeDuel
+        && (state.activeDuel.aId === ev.winnerId || state.activeDuel.aId === ev.loserId)
+        && (state.activeDuel.bId === ev.winnerId || state.activeDuel.bId === ev.loserId)
+        ? null : state.activeDuel;
       return {
         ...state,
         ideas,
         pairFlashes,
         recentEloDeltas,
+        activeDuel,
         ticker: pushTicker(state.ticker, `${w?.idea.pitch ?? '?'} beat ${l?.idea.pitch ?? '?'} — ${ev.reason}`, 'duel', ev.ts),
       };
     }
@@ -214,7 +239,7 @@ export function useTournament() {
     };
   }, []);
 
-  const start = async (opts?: { ideaCount?: number; judgesPerIdea?: number; swissRounds?: number; finalists?: number; rngSeed?: number }) => {
+  const start = async (opts?: { ideaCount?: number; judgesPerIdea?: number; swissRounds?: number; finalists?: number; rngSeed?: number; cinematic?: boolean; mock?: boolean; duelMs?: number }) => {
     await fetch('/api/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

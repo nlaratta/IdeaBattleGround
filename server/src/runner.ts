@@ -3,7 +3,8 @@ import type { Event, IdeaState, RoundPhase, TournamentState } from './types.js';
 import { generateIdeas } from './generation/generate.js';
 import { dedupeIdeas } from './judging/dedup.js';
 import { scoreAllIdeas } from './judging/rubric.js';
-import { runSwissRound } from './judging/pairwise.js';
+import { runSwissRound, pairSwiss, judgePairSilent } from './judging/pairwise.js';
+import { sleep } from './util/sleep.js';
 import { deepReview } from './judging/deep.js';
 import { layoutIdea, categoryColor } from './layout.js';
 import { INITIAL_ELO } from './judging/elo.js';
@@ -18,6 +19,10 @@ export interface TournamentOptions {
   swissRounds: number;
   finalists: number;
   rngSeed?: number;
+  /** Pace the run for streaming: sleeps between phases, serialize pairwise duels with announcements. */
+  cinematic?: boolean;
+  /** Per-duel pause when cinematic. Defaults to 2500. */
+  duelMs?: number;
 }
 
 const DEFAULTS: TournamentOptions = {
@@ -25,6 +30,8 @@ const DEFAULTS: TournamentOptions = {
   judgesPerIdea: 3,
   swissRounds: 5,
   finalists: 6,
+  cinematic: false,
+  duelMs: 2500,
 };
 
 let current: TournamentState | null = null;
@@ -53,7 +60,7 @@ export async function runTournament(opts: Partial<TournamentOptions> | undefined
   current = tournament;
   bus.clear();
   store.insertTournament(tournament.id, tournament.startedAt, o);
-  bus.emit({ type: 'tournament:start', tournamentId: tournament.id, targetCount: o.ideaCount, ts: Date.now() });
+  bus.emit({ type: 'tournament:start', tournamentId: tournament.id, targetCount: o.ideaCount, cinematic: !!o.cinematic, ts: Date.now() });
 
   try {
     setPhase(tournament, 'generating', bus);
@@ -112,13 +119,32 @@ export async function runTournament(opts: Partial<TournamentOptions> | undefined
       }
     }
 
+    if (o.cinematic) await sleep(2500);
+
     setPhase(tournament, 'pairwise', bus);
     for (let r = 0; r < o.swissRounds; r++) {
       tournament.round = r + 1;
       const alive = Object.values(tournament.ideas).filter((s) => s.alive);
-      const results = await runSwissRound(alive, bus);
+      let results;
+      if (o.cinematic) {
+        // Sequence each duel with announcement → pause for animation → judge silently
+        // → emit pairwise:result so the camera/UI gets the full cinematic window.
+        const pairs = pairSwiss(alive);
+        results = [];
+        for (const [a, b] of pairs) {
+          bus.emit({ type: 'duel:start', aId: a.idea.id, bId: b.idea.id, round: tournament.round, expectedMs: o.duelMs ?? 2500, ts: Date.now() });
+          const judgePromise = judgePairSilent(a, b, bus);
+          await sleep(o.duelMs ?? 2500);
+          const res = await judgePromise;
+          if (res) {
+            bus.emit({ type: 'pairwise:result', winnerId: res.winnerId, loserId: res.loserId, reason: res.reason, eloDelta: res.eloDelta, ts: Date.now() });
+            results.push(res);
+          }
+        }
+      } else {
+        results = await runSwissRound(alive, bus);
+      }
       tournament.pairwiseRoundsRun++;
-      // persist pairwise outcomes + Elo updates
       for (const res of results) {
         store.insertPairwise(tournament.id, res.winnerId, res.loserId, res.reason, res.eloDelta, tournament.round, Date.now());
       }
@@ -126,6 +152,7 @@ export async function runTournament(opts: Partial<TournamentOptions> | undefined
         store.updateIdeaElo(state.idea.id, state.elo, state.wins, state.losses);
       }
       store.updateTournamentPhase(tournament.id, 'pairwise', tournament.pairwiseRoundsRun);
+      if (o.cinematic) await sleep(1500);
     }
 
     // Cull losers from pairwise: keep top finalists by Elo
@@ -141,11 +168,23 @@ export async function runTournament(opts: Partial<TournamentOptions> | undefined
       }
     }
 
+    if (o.cinematic) await sleep(2000);
+
     setPhase(tournament, 'deep', bus);
-    const verdicts = await mapWithLimit(finalists, config.judgingConcurrency, async (state) => ({
-      state,
-      verdict: await deepReview(state),
-    }));
+    const verdicts = o.cinematic
+      ? await (async () => {
+          const out: Array<{ state: typeof finalists[number]; verdict: Awaited<ReturnType<typeof deepReview>> }> = [];
+          for (const state of finalists) {
+            const verdict = await deepReview(state);
+            out.push({ state, verdict });
+            await sleep(1200);
+          }
+          return out;
+        })()
+      : await mapWithLimit(finalists, config.judgingConcurrency, async (state) => ({
+          state,
+          verdict: await deepReview(state),
+        }));
     for (const { state, verdict } of verdicts) {
       if (verdict) store.insertDeepVerdict(state.idea.id, verdict, Date.now());
     }
