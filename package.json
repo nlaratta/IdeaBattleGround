@@ -1,0 +1,20 @@
+{
+  "name": "idea-battleground",
+  "private": true,
+  "version": "0.1.0",
+  "description": "AI Idea Colosseum — agents generate, battle, and refine ideas in tournament rounds, visualized live.",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,web -c blue,magenta \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "npm --workspace server run dev",
+    "dev:web": "npm --workspace web run dev",
+    "build": "npm --workspace server run build && npm --workspace web run build",
+    "start": "npm --workspace server run start"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}
