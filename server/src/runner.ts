@@ -152,24 +152,43 @@ export async function runTournament(opts: Partial<TournamentOptions> | undefined
       const alive = Object.values(tournament.ideas).filter((s) => s.alive);
       let results;
       if (o.cinematic) {
-        // Sequence each duel with announcement → pause for animation → judge silently
-        // → emit pairwise:result so the camera/UI gets the full cinematic window.
         const pairs = pairSwiss(alive);
         results = [];
         const isMockMode = config.mockMode;
-        for (const [a, b] of pairs) {
-          bus.emit({ type: 'duel:start', aId: a.idea.id, bId: b.idea.id, round: tournament.round, expectedMs: o.duelMs ?? 2500, ts: Date.now() });
-          const judgePromise = judgePairSilent(a, b, bus, models.judge);
-          // Generate a taunt in parallel — fire-and-forget, emitted whenever it lands.
-          generateTaunt(a, b, isMockMode, models.taunt).then((quote) => {
-            if (quote) bus.emit({ type: 'duel:taunt', aId: a.idea.id, bId: b.idea.id, quote, ts: Date.now() });
-          }).catch(() => { /* taunts are decorative; never crash on failure */ });
-          await sleep(o.duelMs ?? 2500);
-          const res = await judgePromise;
-          if (res) {
-            bus.emit({ type: 'pairwise:result', winnerId: res.winnerId, loserId: res.loserId, reason: res.reason, eloDelta: res.eloDelta, ts: Date.now() });
-            results.push(res);
+        // Adaptive: serialize only when the field is small enough to follow
+        // individual duels. Otherwise run pairs in parallel with a montage
+        // pacing that still announces duels so the visualization can pulse.
+        const SERIAL_THRESHOLD = 12; // alive count below which we go full cinematic
+        if (alive.length <= SERIAL_THRESHOLD) {
+          for (const [a, b] of pairs) {
+            bus.emit({ type: 'duel:start', aId: a.idea.id, bId: b.idea.id, round: tournament.round, expectedMs: o.duelMs ?? 2500, ts: Date.now() });
+            const judgePromise = judgePairSilent(a, b, bus, models.judge);
+            generateTaunt(a, b, isMockMode, models.taunt).then((quote) => {
+              if (quote) bus.emit({ type: 'duel:taunt', aId: a.idea.id, bId: b.idea.id, quote, ts: Date.now() });
+            }).catch(() => {});
+            await sleep(o.duelMs ?? 2500);
+            const res = await judgePromise;
+            if (res) {
+              bus.emit({ type: 'pairwise:result', winnerId: res.winnerId, loserId: res.loserId, reason: res.reason, eloDelta: res.eloDelta, ts: Date.now() });
+              results.push(res);
+            }
           }
+        } else {
+          // Montage round: emit duel:start in a brief stagger, judge in
+          // parallel, emit pairwise:result as each lands. Skip taunts to
+          // keep the visual a wash of light, not a wall of cards.
+          const staggerMs = Math.min(80, Math.max(15, 2000 / pairs.length));
+          const judgeTasks = pairs.map(async ([a, b], i) => {
+            await sleep(i * staggerMs);
+            bus.emit({ type: 'duel:start', aId: a.idea.id, bId: b.idea.id, round: tournament.round, expectedMs: 600, ts: Date.now() });
+            const res = await judgePairSilent(a, b, bus, models.judge);
+            if (res) {
+              bus.emit({ type: 'pairwise:result', winnerId: res.winnerId, loserId: res.loserId, reason: res.reason, eloDelta: res.eloDelta, ts: Date.now() });
+            }
+            return res;
+          });
+          const allRes = await Promise.all(judgeTasks);
+          results = allRes.filter((r): r is NonNullable<typeof r> => r !== null);
         }
       } else {
         results = await runSwissRound(alive, bus, models.judge);
@@ -218,10 +237,14 @@ export async function runTournament(opts: Partial<TournamentOptions> | undefined
     for (const { state, verdict } of verdicts) {
       if (verdict) store.insertDeepVerdict(state.idea.id, verdict, Date.now());
     }
+    // Always crown the top-N finalists by deep score (regardless of the
+    // advance/eliminate verdict). The verdict text remains editorial — Opus
+    // can be honest about flaws without that meaning zero champions.
+    const N = Math.min(3, finalists.length);
     const champions = verdicts
-      .filter(({ verdict }) => verdict?.verdict === 'advance')
+      .filter(({ verdict }) => verdict !== null)
       .sort((a, b) => (b.verdict?.score ?? 0) - (a.verdict?.score ?? 0))
-      .slice(0, 3);
+      .slice(0, N);
     tournament.champions = champions.map(({ state }) => state.idea.id);
     for (const { state } of champions) {
       bus.emit({ type: 'champion', ideaId: state.idea.id, finalElo: state.elo, ts: Date.now() });
