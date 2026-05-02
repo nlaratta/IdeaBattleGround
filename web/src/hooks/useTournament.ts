@@ -125,7 +125,16 @@ const COLORS: Record<string, string> = {
   fitness: '#A8E892', fashion: '#F198C9', hardware: '#9FB1FF', ai: '#C19CFF',
 };
 function categoryColor(cat: string) {
-  return COLORS[cat.toLowerCase()] ?? '#B0B0B0';
+  const key = cat.toLowerCase().trim();
+  if (COLORS[key]) return COLORS[key];
+  // Stable hash → HSL with tuned saturation/lightness to match palette mood.
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < key.length; i++) {
+    h ^= key.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  const hue = ((h % 360) + 360) % 360;
+  return `hsl(${hue}, 60%, 70%)`;
 }
 
 function fnv1a(s: string) {

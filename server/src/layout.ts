@@ -46,7 +46,16 @@ const RING_RADIUS = 380;
 const JITTER = 80;
 
 export function categoryColor(cat: string): string {
-  return CATEGORY_PALETTE[cat.toLowerCase()] ?? CATEGORY_PALETTE.default;
+  const key = cat.toLowerCase().trim();
+  if (CATEGORY_PALETTE[key]) return CATEGORY_PALETTE[key];
+  // Stable hash → HSL fallback so unfamiliar categories get distinct colors.
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < key.length; i++) {
+    h ^= key.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  const hue = ((h % 360) + 360) % 360;
+  return `hsl(${hue}, 60%, 70%)`;
 }
 
 export function layoutIdea(idea: Idea): { x: number; y: number } {

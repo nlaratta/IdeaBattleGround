@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useTournament } from './hooks/useTournament';
-import { OrbitalView } from './views/OrbitalView';
+import { OrbitalView3D } from './views/OrbitalView3D';
 import { TreeView } from './views/TreeView';
 import { Leaderboard } from './components/Leaderboard';
 import { Ticker } from './components/Ticker';
@@ -58,7 +58,7 @@ export function App() {
           <ViewBtn label="tree" active={view === 'tree'} onClick={() => setView('tree')} />
         </div>
         {view === 'orbital' ? (
-          <OrbitalView
+          <OrbitalView3D
             ideas={state.ideas}
             pairFlashes={state.pairFlashes}
             recentEloDeltas={state.recentEloDeltas}
