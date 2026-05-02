@@ -17,6 +17,16 @@ const app = express();
 app.use(cors());
 app.use(buildRouter());
 
-app.listen(config.port, () => {
+const httpServer = app.listen(config.port, () => {
   console.log(`[server] listening on http://localhost:${config.port} (mockMode=${config.mockMode})`);
 });
+
+// Make tsx-watch restarts clean: close the HTTP server on SIGTERM/SIGINT
+// so the port is freed before the new process tries to bind.
+const shutdown = (signal: string) => () => {
+  console.log(`[server] received ${signal}, closing`);
+  httpServer.close(() => process.exit(0));
+  setTimeout(() => process.exit(1), 2000).unref();
+};
+process.on('SIGTERM', shutdown('SIGTERM'));
+process.on('SIGINT', shutdown('SIGINT'));
