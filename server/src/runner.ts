@@ -29,8 +29,12 @@ export interface TournamentOptions {
   rngSeed?: number;
   /** Pace the run for streaming: sleeps between phases, serialize pairwise duels with announcements. */
   cinematic?: boolean;
-  /** Per-duel pause when cinematic. Defaults to 2500. */
+  /** Stream mode: always serialize duels regardless of alive count, with longer linger so viewers can read both ideas. Implies cinematic. */
+  streamMode?: boolean;
+  /** Per-duel approach window when cinematic. Defaults to 2500. */
   duelMs?: number;
+  /** Hold time after the result is announced, so viewers can see who won. Defaults to 2500. */
+  lingerMs?: number;
   /** Per-phase model overrides. Aliases (sonnet/opus/haiku) or full model IDs. */
   models?: ModelOverrides;
 }
@@ -41,7 +45,9 @@ const DEFAULTS: TournamentOptions = {
   swissRounds: 5,
   finalists: 6,
   cinematic: false,
+  streamMode: false,
   duelMs: 2500,
+  lingerMs: 2500,
 };
 
 let current: TournamentState | null = null;
@@ -69,6 +75,8 @@ export async function runTournament(opts: Partial<TournamentOptions> | undefined
   };
   current = tournament;
   bus.clear();
+  // Stream mode implies cinematic.
+  if (o.streamMode) o.cinematic = true;
   store.insertTournament(tournament.id, tournament.startedAt, o);
   bus.emit({ type: 'tournament:start', tournamentId: tournament.id, targetCount: o.ideaCount, cinematic: !!o.cinematic, ts: Date.now() });
 
@@ -155,28 +163,31 @@ export async function runTournament(opts: Partial<TournamentOptions> | undefined
         const pairs = pairSwiss(alive);
         results = [];
         const isMockMode = config.mockMode;
-        // Adaptive: serialize only when the field is small enough to follow
-        // individual duels. Otherwise run pairs in parallel with a montage
-        // pacing that still announces duels so the visualization can pulse.
-        const SERIAL_THRESHOLD = 12; // alive count below which we go full cinematic
-        if (alive.length <= SERIAL_THRESHOLD) {
+        const duelMs = o.duelMs ?? 2500;
+        const lingerMs = o.lingerMs ?? 2500;
+        // Stream mode forces serialize regardless of count. Otherwise
+        // adaptive: serialize only when the field is small enough to follow.
+        const SERIAL_THRESHOLD = 12;
+        const serialize = o.streamMode || alive.length <= SERIAL_THRESHOLD;
+        if (serialize) {
           for (const [a, b] of pairs) {
-            bus.emit({ type: 'duel:start', aId: a.idea.id, bId: b.idea.id, round: tournament.round, expectedMs: o.duelMs ?? 2500, ts: Date.now() });
+            bus.emit({ type: 'duel:start', aId: a.idea.id, bId: b.idea.id, round: tournament.round, expectedMs: duelMs + lingerMs, ts: Date.now() });
             const judgePromise = judgePairSilent(a, b, bus, models.judge);
             generateTaunt(a, b, isMockMode, models.taunt).then((quote) => {
               if (quote) bus.emit({ type: 'duel:taunt', aId: a.idea.id, bId: b.idea.id, quote, ts: Date.now() });
             }).catch(() => {});
-            await sleep(o.duelMs ?? 2500);
+            await sleep(duelMs);
             const res = await judgePromise;
             if (res) {
               bus.emit({ type: 'pairwise:result', winnerId: res.winnerId, loserId: res.loserId, reason: res.reason, eloDelta: res.eloDelta, ts: Date.now() });
               results.push(res);
+              // Linger so viewers can see who won.
+              await sleep(lingerMs);
             }
           }
         } else {
-          // Montage round: emit duel:start in a brief stagger, judge in
-          // parallel, emit pairwise:result as each lands. Skip taunts to
-          // keep the visual a wash of light, not a wall of cards.
+          // Montage round: parallel judges with brief duel:start stagger.
+          // Taunts skipped to keep visual a wash, not a wall of cards.
           const staggerMs = Math.min(80, Math.max(15, 2000 / pairs.length));
           const judgeTasks = pairs.map(async ([a, b], i) => {
             await sleep(i * staggerMs);

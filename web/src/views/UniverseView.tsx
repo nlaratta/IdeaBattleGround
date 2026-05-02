@@ -1,10 +1,11 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { Stars, Html, Sparkles } from '@react-three/drei';
+import { Stars, Sparkles } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import type { IdeaState } from '../types';
 import { duelKey, type ActiveDuel } from '../hooks/useTournament';
+import { DuelCard } from '../components/DuelCard';
 
 // Universe view: ideas as physical bodies that drift and converge for battles.
 // Cinematic mode: server pacing emits duel:start, sleep, pairwise:result. We
@@ -136,9 +137,12 @@ function OrbsLayer({ ideas, activeDuel, selectedId, onSelect, pairFlashes }: Orb
     <>
       {Object.values(ideas).map((s) => {
         const r = eloRadius(s.elo);
-        const color = s.alive ? s.color : '#5a6378';
-        const emissive = s.alive ? s.color : '#2a3550';
         const isDueling = activeDuel && (activeDuel.aId === s.idea.id || activeDuel.bId === s.idea.id);
+        const resolved = !!activeDuel?.winnerId;
+        const isWinner = resolved && activeDuel?.winnerId === s.idea.id;
+        const isLoser = resolved && isDueling && !isWinner;
+        const color = s.alive ? (isWinner ? '#FFD86A' : s.color) : '#5a6378';
+        const emissive = s.alive ? (isWinner ? '#FFD86A' : s.color) : '#2a3550';
         return (
           <group key={s.idea.id}>
             <mesh
@@ -157,11 +161,13 @@ function OrbsLayer({ ideas, activeDuel, selectedId, onSelect, pairFlashes }: Orb
               <meshStandardMaterial
                 color={color}
                 emissive={emissive}
-                emissiveIntensity={s.alive ? (isDueling ? 1.6 : 0.85) : 0.25}
+                emissiveIntensity={s.alive
+                  ? (isWinner ? 2.4 : isLoser ? 0.5 : (isDueling ? 1.6 : 0.85))
+                  : 0.25}
                 metalness={0.2}
                 roughness={0.55}
                 transparent
-                opacity={s.alive ? 1 : 0.65}
+                opacity={s.alive ? (isLoser ? 0.55 : 1) : 0.65}
               />
             </mesh>
           </group>
@@ -174,59 +180,27 @@ function OrbsLayer({ ideas, activeDuel, selectedId, onSelect, pairFlashes }: Orb
 interface DuelOverlayProps {
   ideas: Record<string, IdeaState>;
   duel: ActiveDuel;
-  taunt?: string;
 }
 
-function DuelOverlay({ ideas, duel, taunt }: DuelOverlayProps) {
+function DuelOverlay({ ideas, duel }: DuelOverlayProps) {
   const a = ideas[duel.aId];
   const b = ideas[duel.bId];
   if (!a || !b) return null;
   const aHome = new THREE.Vector3(a.position.x * SCALE, 0, a.position.y * SCALE);
   const bHome = new THREE.Vector3(b.position.x * SCALE, 0, b.position.y * SCALE);
   const mid = aHome.clone().lerp(bHome, 0.5);
+  // Sparkles in the arena midpoint — gold during duel, brighter cyan/burst on resolve.
+  const resolved = !!duel.winnerId;
   return (
-    <>
-      <Html
-        position={[mid.x, 2.0, mid.z]}
-        center
-        distanceFactor={9}
-        style={{ pointerEvents: 'none' }}
-      >
-        <div style={{
-          background: 'rgba(15,18,28,0.85)',
-          border: '1px solid rgba(255,224,102,0.35)',
-          padding: '8px 12px',
-          borderRadius: 8,
-          fontSize: 12,
-          color: '#dfe3ee',
-          minWidth: 240,
-          maxWidth: 320,
-          textAlign: 'center',
-          boxShadow: '0 4px 24px rgba(0,0,0,0.4)',
-          backdropFilter: 'blur(6px)',
-        }}>
-          <div style={{ fontWeight: 700, letterSpacing: 1, opacity: 0.6, fontSize: 10 }}>DUEL · ROUND {duel.round}</div>
-          <div style={{ display: 'flex', justifyContent: 'space-around', alignItems: 'baseline', marginTop: 4, gap: 8 }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ color: a.color, fontWeight: 600 }}>{a.idea.pitch}</div>
-              <div style={{ opacity: 0.6, fontSize: 10, marginTop: 2 }}>{a.idea.mechanism.slice(0, 70)}{a.idea.mechanism.length > 70 ? '…' : ''}</div>
-            </div>
-            <div style={{ opacity: 0.5, fontWeight: 700, fontSize: 14 }}>vs</div>
-            <div style={{ flex: 1 }}>
-              <div style={{ color: b.color, fontWeight: 600 }}>{b.idea.pitch}</div>
-              <div style={{ opacity: 0.6, fontSize: 10, marginTop: 2 }}>{b.idea.mechanism.slice(0, 70)}{b.idea.mechanism.length > 70 ? '…' : ''}</div>
-            </div>
-          </div>
-          <div style={{ opacity: 0.45, fontSize: 10, marginTop: 6 }}>elo {a.elo.toFixed(0)} vs {b.elo.toFixed(0)}</div>
-          {taunt && (
-            <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.08)', fontSize: 11, fontStyle: 'italic', color: '#FFE066', opacity: 0.92 }}>
-              "{taunt}"
-            </div>
-          )}
-        </div>
-      </Html>
-      <Sparkles count={40} scale={[1.5, 0.8, 1.5]} position={[mid.x, 0.4, mid.z]} speed={1.2} size={3} color="#FFE066" opacity={0.9} />
-    </>
+    <Sparkles
+      count={resolved ? 80 : 40}
+      scale={[1.5, 0.8, 1.5]}
+      position={[mid.x, 0.4, mid.z]}
+      speed={resolved ? 2.4 : 1.2}
+      size={resolved ? 5 : 3}
+      color={resolved ? '#FFD86A' : '#FFE066'}
+      opacity={0.95}
+    />
   );
 }
 
@@ -358,9 +332,7 @@ export function UniverseView({ ideas, pairFlashes, killBursts, champions, active
           <gridHelper args={[60, 60, '#1c2030', '#15182a']} position={[0, -0.05, 0]} />
 
           <OrbsLayer ideas={ideas} pairFlashes={pairFlashes} activeDuel={activeDuel} selectedId={selectedId} onSelect={onSelect} />
-          {activeDuel && (
-            <DuelOverlay ideas={ideas} duel={activeDuel} taunt={taunts[duelKey(activeDuel.aId, activeDuel.bId)]} />
-          )}
+          {activeDuel && <DuelOverlay ideas={ideas} duel={activeDuel} />}
           <CinematicCamera ideas={ideas} activeDuel={activeDuel} champions={champions} phase={phase} reveal={reveal} />
 
           <EffectComposer>
@@ -369,6 +341,14 @@ export function UniverseView({ ideas, pairFlashes, killBursts, champions, active
           </EffectComposer>
         </Suspense>
       </Canvas>
+
+      {activeDuel && (
+        <DuelCard
+          duel={activeDuel}
+          ideas={ideas}
+          taunt={taunts[duelKey(activeDuel.aId, activeDuel.bId)]}
+        />
+      )}
 
       {/* HUD overlays */}
       <div style={{

@@ -22,6 +22,11 @@ export interface ActiveDuel {
   round: number;
   startedAt: number;
   expectedMs: number;
+  /** Set once pairwise:result arrives. While present, the card is in "winner reveal" linger state. */
+  winnerId?: string;
+  reason?: string;
+  eloDelta?: number;
+  resolvedAt?: number;
 }
 
 interface State {
@@ -71,7 +76,13 @@ function reducer(state: State, ev: Event): State {
     case 'tournament:start':
       return { ...initialState, startedAt: ev.ts, totalIdeas: 0, cinematic: !!ev.cinematic };
     case 'phase:change':
-      return { ...state, phase: ev.phase, ticker: pushTicker(state.ticker, `phase: ${ev.phase}`, 'phase', ev.ts) };
+      // Leaving pairwise → clear any leftover duel card.
+      return {
+        ...state,
+        phase: ev.phase,
+        activeDuel: ev.phase !== 'pairwise' ? null : state.activeDuel,
+        ticker: pushTicker(state.ticker, `phase: ${ev.phase}`, 'phase', ev.ts),
+      };
     case 'idea:generated': {
       const id = ev.idea.id;
       const next: IdeaState = {
@@ -170,10 +181,15 @@ function reducer(state: State, ev: Event): State {
         { ideaId: ev.loserId, delta: -ev.eloDelta, ts: ev.ts },
         ...state.recentEloDeltas,
       ].slice(0, 30);
-      const activeDuel = state.activeDuel
+      // If this result is for the active duel, transition the card to
+      // winner-reveal state instead of clearing it. Card stays up until the
+      // next duel:start fires (or phase changes).
+      const matchesActive = state.activeDuel
         && (state.activeDuel.aId === ev.winnerId || state.activeDuel.aId === ev.loserId)
-        && (state.activeDuel.bId === ev.winnerId || state.activeDuel.bId === ev.loserId)
-        ? null : state.activeDuel;
+        && (state.activeDuel.bId === ev.winnerId || state.activeDuel.bId === ev.loserId);
+      const activeDuel = matchesActive
+        ? { ...state.activeDuel!, winnerId: ev.winnerId, reason: ev.reason, eloDelta: ev.eloDelta, resolvedAt: ev.ts }
+        : state.activeDuel;
 
       const breaking: BreakingItem[] = [];
       // Streak: 3+ in a row
@@ -323,7 +339,7 @@ export function useTournament() {
     };
   }, []);
 
-  const start = async (opts?: { ideaCount?: number; judgesPerIdea?: number; swissRounds?: number; finalists?: number; rngSeed?: number; cinematic?: boolean; mock?: boolean; duelMs?: number; models?: { generator: string; judge: string; deepJudge: string; taunt: string } }) => {
+  const start = async (opts?: { ideaCount?: number; judgesPerIdea?: number; swissRounds?: number; finalists?: number; rngSeed?: number; cinematic?: boolean; streamMode?: boolean; mock?: boolean; duelMs?: number; lingerMs?: number; models?: { generator: string; judge: string; deepJudge: string; taunt: string } }) => {
     await fetch('/api/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

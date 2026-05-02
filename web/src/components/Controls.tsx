@@ -9,7 +9,7 @@ export interface ModelChoice {
 
 interface Props {
   phase: string;
-  onStart: (opts: { ideaCount: number; judgesPerIdea: number; swissRounds: number; finalists: number; cinematic?: boolean; mock?: boolean; duelMs?: number; models?: ModelChoice }) => void;
+  onStart: (opts: { ideaCount: number; judgesPerIdea: number; swissRounds: number; finalists: number; cinematic?: boolean; streamMode?: boolean; mock?: boolean; duelMs?: number; lingerMs?: number; models?: ModelChoice }) => void;
   defaultCinematic?: boolean;
 }
 
@@ -21,10 +21,13 @@ export function Controls({ phase, onStart, defaultCinematic }: Props) {
   const [swissRounds, setSwissRounds] = useState(3);
   const [finalists, setFinalists] = useState(4);
   const [cinematic, setCinematic] = useState(defaultCinematic ?? true);
+  const [streamMode, setStreamMode] = useState(false);
   const [duelMs, setDuelMs] = useState(2500);
+  const [lingerMs, setLingerMs] = useState(2500);
   const [mock, setMock] = useState(false);
   const [models, setModels] = useState<ModelChoice>({ generator: 'sonnet', judge: 'sonnet', deepJudge: 'opus', taunt: 'haiku' });
   const [showModels, setShowModels] = useState(false);
+  const [showStream, setShowStream] = useState(true);
 
   const running = phase !== 'idle' && phase !== 'complete';
   const setModel = (k: keyof ModelChoice) => (v: string) => setModels((m) => ({ ...m, [k]: v }));
@@ -36,9 +39,34 @@ export function Controls({ phase, onStart, defaultCinematic }: Props) {
       <Row label="judges/idea" value={judgesPerIdea} onChange={setJudgesPerIdea} min={1} max={5} />
       <Row label="swiss rounds" value={swissRounds} onChange={setSwissRounds} min={1} max={8} />
       <Row label="finalists" value={finalists} onChange={setFinalists} min={2} max={16} />
-      {cinematic && <Row label="duel ms" value={duelMs} onChange={setDuelMs} min={500} max={6000} step={250} />}
-      <ToggleRow label="cinematic" value={cinematic} onChange={setCinematic} />
       <ToggleRow label="mock (this run)" value={mock} onChange={setMock} />
+
+      <div style={{ marginTop: 4, paddingTop: 6, borderTop: '1px solid #1c2030' }}>
+        <button
+          onClick={() => setShowStream((v) => !v)}
+          style={{
+            background: 'transparent', color: '#dfe3ee', border: 'none', cursor: 'pointer',
+            padding: 0, fontSize: 11, opacity: 0.7, letterSpacing: 1, textTransform: 'uppercase',
+          }}
+        >
+          {showStream ? '▾' : '▸'} Stream Settings
+        </button>
+        {showStream && (
+          <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <ToggleRow label="cinematic" value={cinematic} onChange={setCinematic} />
+            <ToggleRow label="stream mode" value={streamMode} onChange={(v) => { setStreamMode(v); if (v) setCinematic(true); }} />
+            {cinematic && <Row label="duel ms" value={duelMs} onChange={setDuelMs} min={500} max={8000} step={250} />}
+            {cinematic && <Row label="linger ms" value={lingerMs} onChange={setLingerMs} min={0} max={8000} step={250} />}
+            <div style={{ fontSize: 10, opacity: 0.45, marginTop: 4, lineHeight: 1.4 }}>
+              {streamMode
+                ? 'Every duel is shown one at a time, with linger after the result. Slow but readable; the right pick when streaming.'
+                : cinematic
+                  ? 'Cinematic with adaptive pacing: serial below 12 alive, parallel above. Good for idea generation.'
+                  : 'Fast as possible. No animation pacing.'}
+            </div>
+          </div>
+        )}
+      </div>
 
       <div style={{ marginTop: 4, paddingTop: 6, borderTop: '1px solid #1c2030' }}>
         <button
@@ -62,7 +90,7 @@ export function Controls({ phase, onStart, defaultCinematic }: Props) {
 
       <button
         disabled={running}
-        onClick={() => onStart({ ideaCount, judgesPerIdea, swissRounds, finalists, cinematic, mock, duelMs, models })}
+        onClick={() => onStart({ ideaCount, judgesPerIdea, swissRounds, finalists, cinematic, streamMode, mock, duelMs, lingerMs, models })}
         style={{
           marginTop: 6,
           background: running ? '#2a2e3a' : '#3a4f7a',
