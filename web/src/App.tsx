@@ -62,6 +62,8 @@ export function App() {
             ideas={state.ideas}
             pairFlashes={state.pairFlashes}
             recentEloDeltas={state.recentEloDeltas}
+            killBursts={state.killBursts}
+            champions={state.champions}
             selectedId={selectedId}
             onSelect={setSelectedId}
           />

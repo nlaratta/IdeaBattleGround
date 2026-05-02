@@ -8,11 +8,19 @@ interface PairFlash {
   ts: number;
 }
 
+interface KillBurst {
+  ideaId: string;
+  position: { x: number; y: number };
+  color: string;
+  ts: number;
+}
+
 interface State {
   phase: RoundPhase;
   round: number;
   ideas: Record<string, IdeaState>;
   pairFlashes: PairFlash[]; // recent — used for visual pulses
+  killBursts: KillBurst[];
   champions: string[];
   log: { level: string; msg: string; ts: number }[];
   ticker: { msg: string; ts: number; kind: string }[];
@@ -27,6 +35,7 @@ const initialState: State = {
   round: 0,
   ideas: {},
   pairFlashes: [],
+  killBursts: [],
   champions: [],
   log: [],
   ticker: [],
@@ -72,10 +81,17 @@ function reducer(state: State, ev: Event): State {
     case 'idea:killed': {
       const s = state.ideas[ev.ideaId];
       if (!s || !s.alive) return state;
+      const burst: KillBurst = {
+        ideaId: ev.ideaId,
+        position: s.position,
+        color: s.color,
+        ts: ev.ts,
+      };
       return {
         ...state,
         aliveCount: Math.max(0, state.aliveCount - 1),
         ideas: { ...state.ideas, [ev.ideaId]: { ...s, alive: false, killedInRound: ev.round } },
+        killBursts: [...state.killBursts, burst].slice(-40),
         ticker: pushTicker(state.ticker, `${s.idea.pitch} eliminated (${ev.reason})`, 'kill', ev.ts),
       };
     }

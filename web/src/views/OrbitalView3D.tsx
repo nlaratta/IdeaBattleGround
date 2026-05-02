@@ -1,14 +1,24 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { OrbitControls, Stars, Line, Html } from '@react-three/drei';
+import { OrbitControls, Stars } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import type { IdeaState } from '../types';
+import { EffectsLayer } from './Particles';
+
+interface KillBurstSpec {
+  ideaId: string;
+  position: { x: number; y: number };
+  color: string;
+  ts: number;
+}
 
 interface Props {
   ideas: Record<string, IdeaState>;
   pairFlashes: { winnerId: string; loserId: string; ts: number }[];
   recentEloDeltas: { ideaId: string; delta: number; ts: number }[];
+  killBursts: KillBurstSpec[];
+  champions: string[];
   selectedId?: string | null;
   onSelect: (id: string | null) => void;
 }
@@ -219,7 +229,7 @@ interface SceneProps extends Props {
   onHoverIdea: (idea: IdeaState | null) => void;
 }
 
-function Scene({ ideas, pairFlashes, selectedId, autoFollow, onSelect, onHoverIdea }: SceneProps) {
+function Scene({ ideas, pairFlashes, killBursts, champions, selectedId, autoFollow, onSelect, onHoverIdea }: SceneProps) {
   const ideasArr = Object.values(ideas);
 
   // Build flashStrength per idea from recent pair flashes
@@ -274,8 +284,16 @@ function Scene({ ideas, pairFlashes, selectedId, autoFollow, onSelect, onHoverId
           />
         );
       })}
+      <EffectsLayer
+        bursts={killBursts}
+        scale={SCALE}
+        championPositions={champions
+          .map((id) => ideas[id])
+          .filter(Boolean)
+          .map((s) => ({ x: s.position.x, y: s.position.y, color: s.color }))}
+      />
       <EffectComposer>
-        <Bloom intensity={0.7} luminanceThreshold={0.2} luminanceSmoothing={0.7} mipmapBlur />
+        <Bloom intensity={0.85} luminanceThreshold={0.18} luminanceSmoothing={0.7} mipmapBlur />
         <Vignette eskil={false} offset={0.2} darkness={0.7} />
       </EffectComposer>
       <mesh onClick={() => onSelect(null)} position={[0, -1, 0]}>
@@ -286,7 +304,7 @@ function Scene({ ideas, pairFlashes, selectedId, autoFollow, onSelect, onHoverId
   );
 }
 
-export function OrbitalView3D({ ideas, pairFlashes, recentEloDeltas, selectedId, onSelect }: Props) {
+export function OrbitalView3D({ ideas, pairFlashes, recentEloDeltas, killBursts, champions, selectedId, onSelect }: Props) {
   const [autoFollow, setAutoFollow] = useState(true);
   const [hovered, setHovered] = useState<IdeaState | null>(null);
   const controlsRef = useRef<unknown>(null);
@@ -313,6 +331,8 @@ export function OrbitalView3D({ ideas, pairFlashes, recentEloDeltas, selectedId,
             ideas={ideas}
             pairFlashes={pairFlashes}
             recentEloDeltas={recentEloDeltas}
+            killBursts={killBursts}
+            champions={champions}
             selectedId={selectedId}
             onSelect={onSelect}
             autoFollow={autoFollow}
