@@ -44,32 +44,37 @@ export function PhaseChyron({ phase, round, alive, total, cinematic }: Props) {
     return () => clearTimeout(t);
   }, [phase, round, cinematic]);
 
+  // Bottom-left compact chyron: doesn't overlap the duel card, doesn't
+  // cover the whole canvas mid-action. Reads like a sports-broadcast
+  // lower-third on the opposite corner from the breaking-news ticker.
   return (
     <div style={{
-      position: 'absolute', top: '38%', left: 0, right: 0,
-      pointerEvents: 'none', textAlign: 'center',
+      position: 'absolute', bottom: 56, left: 18,
+      pointerEvents: 'none',
       opacity: visible ? 1 : 0,
-      transform: visible ? 'translateY(0) scale(1)' : 'translateY(-14px) scale(0.96)',
+      transform: visible ? 'translateX(0)' : 'translateX(-14px)',
       transition: 'opacity 380ms ease, transform 380ms ease',
       zIndex: 6,
+      maxWidth: 'min(420px, 40vw)',
     }}>
       <div style={{
-        display: 'inline-block',
-        background: 'rgba(8,10,18,0.78)',
-        backdropFilter: 'blur(14px)',
-        border: '1px solid rgba(255,255,255,0.09)',
-        padding: '16px 36px', borderRadius: 12,
-        fontSize: 26, letterSpacing: 5, fontWeight: 700,
+        background: 'rgba(8,10,18,0.86)',
+        backdropFilter: 'blur(12px)',
+        border: '1px solid rgba(124,196,255,0.22)',
+        borderLeft: '3px solid #7CC4FF',
+        padding: '10px 16px', borderRadius: 8,
         color: '#dfe3ee',
-        textShadow: '0 0 30px rgba(124,196,255,0.55)',
       }}>
-        {text}
+        <div style={{
+          fontSize: 13, letterSpacing: 3, fontWeight: 700,
+          textShadow: '0 0 20px rgba(124,196,255,0.4)',
+        }}>{text}</div>
         {sub && (
-          <div style={{ fontSize: 12, letterSpacing: 1, opacity: 0.55, marginTop: 8, fontWeight: 400, fontStyle: 'italic' }}>
+          <div style={{ fontSize: 11, letterSpacing: 0.5, opacity: 0.6, marginTop: 4, fontStyle: 'italic' }}>
             {sub}
           </div>
         )}
-        <div style={{ fontSize: 11, letterSpacing: 1.5, opacity: 0.45, marginTop: 8, fontWeight: 400 }}>
+        <div style={{ fontSize: 10, letterSpacing: 1, opacity: 0.5, marginTop: 4 }}>
           {alive}/{total} alive {cinematic ? '· cinematic mode' : ''}
         </div>
       </div>

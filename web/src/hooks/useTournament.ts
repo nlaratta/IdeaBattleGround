@@ -288,9 +288,10 @@ function fnv1a(s: string) {
 }
 function pseudoLayout(cat: string, id: string) {
   const angBase = (fnv1a(cat.toLowerCase()) % 1000) / 1000 * Math.PI * 2;
-  const local = fnv1a(id) / 0xffffffff;
-  const angle = angBase + (local - 0.5) * 0.7;
-  const radius = 380 + Math.cos(local * Math.PI * 2) * 80;
+  const localA = fnv1a(id) / 0xffffffff;
+  const localR = fnv1a(id + ':r') / 0xffffffff;
+  const angle = angBase + (localA - 0.5) * 0.84;
+  const radius = 220 + Math.sqrt(localR) * 540;
   return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
 }
 
@@ -348,13 +349,14 @@ export function useTournament() {
   };
 
   /** Hydrate state from a stored tournament's event log. Stops live SSE while viewing history. */
-  const loadHistorical = async (id: string) => {
+  const loadHistorical = async (id: string, untilIdx?: number) => {
     const res = await fetch(`/api/tournaments/${id}/events`);
     const json = await res.json() as { events: Event[] };
     // tear down SSE so live events don't bleed into the historical view
     try { esRef.current?.close(); } catch { /* ignore */ }
     dispatch({ type: 'tournament:start', tournamentId: id, targetCount: 0, ts: Date.now() } as Event);
-    for (const ev of json.events) dispatch(ev);
+    const evs = untilIdx === undefined ? json.events : json.events.slice(0, untilIdx);
+    for (const ev of evs) dispatch(ev);
   };
 
   /** Reconnect to live SSE (called when user clicks "live" after viewing history). */

@@ -31,6 +31,29 @@ export function App() {
     }
   }, [state.phase]);
 
+  // Visual-debug seek: ?historical=<id>&until=<n> replays a stored
+  // tournament up to event index n, with no live SSE. Used by the
+  // Playwright harness for deterministic screenshots.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get('historical');
+    const until = params.get('until');
+    if (id) {
+      const n = until ? parseInt(until, 10) : undefined;
+      setHistoricalId(id);
+      void loadHistorical(id, n).then(() => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => { document.body.dataset.ibgReady = 'true'; });
+        });
+      });
+    } else {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => { document.body.dataset.ibgReady = 'true'; });
+      });
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Trigger champion reveal reel when a tournament completes (and we have champions).
   const lastCompleteTs = state.completeTs;
   useEffect(() => {

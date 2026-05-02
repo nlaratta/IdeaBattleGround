@@ -350,15 +350,31 @@ export function UniverseView({ ideas, pairFlashes, killBursts, champions, active
         />
       )}
 
-      {/* HUD overlays */}
+      {/* Bottom-right HUD: alive count + duel state. Symmetric counterweight to phase chyron at bottom-left. */}
       <div style={{
-        position: 'absolute', bottom: 10, left: 12,
+        position: 'absolute', bottom: 10, right: 12,
         background: 'rgba(20,22,30,0.75)', padding: '6px 10px', borderRadius: 6, fontSize: 12,
         display: 'flex', gap: 14,
       }}>
         <span>{aliveCount}/{total} alive</span>
         {activeDuel && <span style={{ color: '#FFE066' }}>· duel · round {activeDuel.round}</span>}
       </div>
+
+      {/* Idle hint when no tournament has started */}
+      {total === 0 && (
+        <div style={{
+          position: 'absolute', top: '48%', left: 0, right: 0,
+          textAlign: 'center', pointerEvents: 'none',
+          color: 'rgba(124,196,255,0.55)',
+          fontSize: 14, letterSpacing: 3, fontWeight: 600,
+          textShadow: '0 0 32px rgba(124,196,255,0.35)',
+        }}>
+          IDEA BATTLEGROUND
+          <div style={{ fontSize: 11, letterSpacing: 1, opacity: 0.65, marginTop: 8, fontStyle: 'italic' }}>
+            press start to summon a field of ideas
+          </div>
+        </div>
+      )}
     </div>
   );
 }

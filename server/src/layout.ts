@@ -42,8 +42,12 @@ function categoryAngle(cat: string): number {
   return (h % 1000) / 1000 * Math.PI * 2;
 }
 
-const RING_RADIUS = 380;
-const JITTER = 80;
+// Annular layout: each idea sits in its category's pie-slice but with a wide
+// radial range so 100+ ideas don't pack into a single ring. Cluster appearance
+// preserved (similar ideas spatial-clump) but density is readable.
+const ANGULAR_HALF_WIDTH = 0.42;        // ~24° per category cluster (wider for visibility)
+const RADIUS_INNER = 220;
+const RADIUS_OUTER = 760;
 
 export function categoryColor(cat: string): string {
   const key = cat.toLowerCase().trim();
@@ -60,9 +64,11 @@ export function categoryColor(cat: string): string {
 
 export function layoutIdea(idea: Idea): { x: number; y: number } {
   const baseAngle = categoryAngle(idea.category);
-  const local = hashStr(idea.id) / 0xffffffff;
-  const angle = baseAngle + (local - 0.5) * 0.7;
-  const radius = RING_RADIUS + (Math.cos(local * Math.PI * 2)) * JITTER;
+  const localA = hashStr(idea.id) / 0xffffffff;
+  const localR = hashStr(idea.id + ':r') / 0xffffffff;
+  const angle = baseAngle + (localA - 0.5) * (ANGULAR_HALF_WIDTH * 2);
+  // sqrt to avoid clumping at the inner radius (uniform area distribution).
+  const radius = RADIUS_INNER + Math.sqrt(localR) * (RADIUS_OUTER - RADIUS_INNER);
   return {
     x: Math.cos(angle) * radius,
     y: Math.sin(angle) * radius,
