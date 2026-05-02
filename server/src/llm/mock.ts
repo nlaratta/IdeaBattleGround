@@ -98,7 +98,20 @@ export class MockProvider implements LlmProvider {
     if (sys.includes('RUBRIC_JUDGE')) return this.scoreIdea<T>(req.userPrompt);
     if (sys.includes('PAIRWISE_JUDGE')) return this.judgePair<T>(req.userPrompt);
     if (sys.includes('DEEP_JUDGE')) return this.deepReview<T>(req.userPrompt);
+    if (sys.includes('TAUNT_NARRATOR')) return this.taunt<T>();
     throw new Error('Unknown mock prompt');
+  }
+
+  private taunt<T>(): LlmResult<T> {
+    const tpls = [
+      'Stand back: a duel for the unbothered.',
+      'Two ideas walk in. One walks out.',
+      'Coin-flip on talent night.',
+      'Whichever you root for, the judge has different priors.',
+      'No taunt this time — just a clean clean fight.',
+    ];
+    const data = { quote: tpls[Math.floor(this.rng() * tpls.length)] };
+    return { data: data as T, raw: JSON.stringify(data) };
   }
 
   private generateIdea<T>(_userPrompt: string): LlmResult<T> {

@@ -73,6 +73,7 @@ export type Event =
   | { type: 'idea:scored'; ideaId: string; score: RubricScore; ts: number }
   | { type: 'idea:killed'; ideaId: string; reason: string; round: number; ts: number }
   | { type: 'duel:start'; aId: string; bId: string; round: number; expectedMs: number; ts: number }
+  | { type: 'duel:taunt'; aId: string; bId: string; quote: string; ts: number }
   | { type: 'pairwise:result'; winnerId: string; loserId: string; reason: string; eloDelta: number; ts: number }
   | { type: 'champion'; ideaId: string; finalElo: number; ts: number }
   | { type: 'tournament:complete'; tournamentId: string; ts: number }

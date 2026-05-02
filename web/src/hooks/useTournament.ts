@@ -1,5 +1,6 @@
 import { useEffect, useReducer, useRef } from 'react';
 import type { Event, IdeaState, RoundPhase } from '../types';
+import type { BreakingItem } from '../components/BreakingNews';
 
 interface PairFlash {
   winnerId: string;
@@ -38,6 +39,10 @@ interface State {
   recentEloDeltas: { ideaId: string; delta: number; ts: number }[];
   activeDuel: ActiveDuel | null;
   cinematic: boolean;
+  breakingNews: BreakingItem[];
+  firstCullDone: boolean;
+  taunts: Record<string, string>; // duelKey → quote
+  completeTs: number | null;
 }
 
 const initialState: State = {
@@ -55,6 +60,10 @@ const initialState: State = {
   recentEloDeltas: [],
   activeDuel: null,
   cinematic: false,
+  breakingNews: [],
+  firstCullDone: false,
+  taunts: {},
+  completeTs: null,
 };
 
 function reducer(state: State, ev: Event): State {
@@ -99,11 +108,40 @@ function reducer(state: State, ev: Event): State {
         color: s.color,
         ts: ev.ts,
       };
+      const ideasNext = { ...state.ideas, [ev.ideaId]: { ...s, alive: false, killedInRound: ev.round } };
+      // Detect "last of category" — was this the last alive in its category?
+      const cat = s.idea.category;
+      const stillAliveInCat = Object.values(ideasNext).filter((x) => x.idea.category === cat && x.alive).length;
+      const totalInCat = Object.values(ideasNext).filter((x) => x.idea.category === cat).length;
+
+      const breaking: BreakingItem[] = [];
+      // First pairwise cull — the "first casualty" beat
+      if (!state.firstCullDone && ev.reason === 'pairwise-cull') {
+        breaking.push({
+          id: `firstcull-${ev.ideaId}`,
+          kind: 'first-cull',
+          msg: `${s.idea.pitch} is the first to fall in head-to-head.`,
+          detail: ev.reason,
+          ts: ev.ts,
+        });
+      }
+      // Last of category (only meaningful if there were >=2 in this cat originally)
+      if (stillAliveInCat === 0 && totalInCat >= 2) {
+        breaking.push({
+          id: `lastof-${cat}-${ev.ts}`,
+          kind: 'last-of-kind',
+          msg: `${s.idea.pitch} was the final ${cat} idea standing.`,
+          detail: `${cat.toUpperCase()} cluster eliminated`,
+          ts: ev.ts,
+        });
+      }
       return {
         ...state,
         aliveCount: Math.max(0, state.aliveCount - 1),
-        ideas: { ...state.ideas, [ev.ideaId]: { ...s, alive: false, killedInRound: ev.round } },
+        ideas: ideasNext,
         killBursts: [...state.killBursts, burst].slice(-40),
+        firstCullDone: state.firstCullDone || ev.reason === 'pairwise-cull',
+        breakingNews: [...state.breakingNews, ...breaking].slice(-20),
         ticker: pushTicker(state.ticker, `${s.idea.pitch} eliminated (${ev.reason})`, 'kill', ev.ts),
       };
     }
@@ -114,11 +152,16 @@ function reducer(state: State, ev: Event): State {
         ticker: pushTicker(state.ticker, `duel: ${state.ideas[ev.aId]?.idea.pitch ?? '?'} vs ${state.ideas[ev.bId]?.idea.pitch ?? '?'}`, 'duel', ev.ts),
       };
     }
+    case 'duel:taunt': {
+      const key = duelKey(ev.aId, ev.bId);
+      return { ...state, taunts: { ...state.taunts, [key]: ev.quote } };
+    }
     case 'pairwise:result': {
       const w = state.ideas[ev.winnerId];
       const l = state.ideas[ev.loserId];
       const ideas = { ...state.ideas };
-      if (w) ideas[w.idea.id] = { ...w, elo: w.elo + ev.eloDelta, wins: w.wins + 1 };
+      const winnerWins = (w?.wins ?? 0) + 1;
+      if (w) ideas[w.idea.id] = { ...w, elo: w.elo + ev.eloDelta, wins: winnerWins };
       if (l) ideas[l.idea.id] = { ...l, elo: l.elo - ev.eloDelta, losses: l.losses + 1 };
       const flash: PairFlash = { winnerId: ev.winnerId, loserId: ev.loserId, reason: ev.reason, ts: ev.ts };
       const pairFlashes = [...state.pairFlashes, flash].slice(-50);
@@ -127,28 +170,65 @@ function reducer(state: State, ev: Event): State {
         { ideaId: ev.loserId, delta: -ev.eloDelta, ts: ev.ts },
         ...state.recentEloDeltas,
       ].slice(0, 30);
-      // Clear active duel if it matches.
       const activeDuel = state.activeDuel
         && (state.activeDuel.aId === ev.winnerId || state.activeDuel.aId === ev.loserId)
         && (state.activeDuel.bId === ev.winnerId || state.activeDuel.bId === ev.loserId)
         ? null : state.activeDuel;
+
+      const breaking: BreakingItem[] = [];
+      // Streak: 3+ in a row
+      if (winnerWins >= 3 && winnerWins % 1 === 0 && w) {
+        breaking.push({
+          id: `streak-${w.idea.id}-${winnerWins}`,
+          kind: 'streak',
+          msg: `${w.idea.pitch} on a ${winnerWins}-win streak.`,
+          detail: `current elo ${(w.elo + ev.eloDelta).toFixed(0)}`,
+          ts: ev.ts,
+        });
+      }
+      // Upset: loser was rated meaningfully higher than winner before the duel.
+      if (w && l) {
+        const beforeWinner = w.elo;
+        const beforeLoser = l.elo;
+        if (beforeLoser - beforeWinner >= 40) {
+          breaking.push({
+            id: `upset-${w.idea.id}-${l.idea.id}-${ev.ts}`,
+            kind: 'upset',
+            msg: `${w.idea.pitch} just beat ${l.idea.pitch}.`,
+            detail: `underdog by ${(beforeLoser - beforeWinner).toFixed(0)} elo`,
+            ts: ev.ts,
+          });
+        }
+      }
+
       return {
         ...state,
         ideas,
         pairFlashes,
         recentEloDeltas,
         activeDuel,
+        breakingNews: [...state.breakingNews, ...breaking].slice(-20),
         ticker: pushTicker(state.ticker, `${w?.idea.pitch ?? '?'} beat ${l?.idea.pitch ?? '?'} — ${ev.reason}`, 'duel', ev.ts),
       };
     }
-    case 'champion':
+    case 'champion': {
+      const champ = state.ideas[ev.ideaId];
+      const breaking: BreakingItem[] = champ ? [{
+        id: `champion-${ev.ideaId}`,
+        kind: 'champion',
+        msg: `${champ.idea.pitch} crowned champion.`,
+        detail: `final elo ${ev.finalElo.toFixed(0)}`,
+        ts: ev.ts,
+      }] : [];
       return {
         ...state,
         champions: [...state.champions, ev.ideaId],
+        breakingNews: [...state.breakingNews, ...breaking].slice(-20),
         ticker: pushTicker(state.ticker, `🏆 champion: ${state.ideas[ev.ideaId]?.idea.pitch ?? ev.ideaId}`, 'champ', ev.ts),
       };
+    }
     case 'tournament:complete':
-      return { ...state, ticker: pushTicker(state.ticker, 'tournament complete', 'done', ev.ts) };
+      return { ...state, completeTs: ev.ts, ticker: pushTicker(state.ticker, 'tournament complete', 'done', ev.ts) };
     case 'log':
       return { ...state, log: [...state.log, { level: ev.level, msg: ev.msg, ts: ev.ts }].slice(-100) };
   }
@@ -156,6 +236,10 @@ function reducer(state: State, ev: Event): State {
 
 function pushTicker(prev: State['ticker'], msg: string, kind: string, ts: number) {
   return [...prev, { msg, kind, ts }].slice(-60);
+}
+
+export function duelKey(aId: string, bId: string) {
+  return aId < bId ? `${aId}|${bId}` : `${bId}|${aId}`;
 }
 
 const COLORS: Record<string, string> = {

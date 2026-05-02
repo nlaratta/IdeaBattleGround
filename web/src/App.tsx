@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTournament } from './hooks/useTournament';
 import { OrbitalView3D } from './views/OrbitalView3D';
 import { UniverseView } from './views/UniverseView';
@@ -8,6 +8,9 @@ import { Ticker } from './components/Ticker';
 import { Inspector } from './components/Inspector';
 import { Controls } from './components/Controls';
 import { History } from './components/History';
+import { PhaseChyron } from './components/PhaseChyron';
+import { BreakingNews } from './components/BreakingNews';
+import { ChampionReveal } from './components/ChampionReveal';
 
 type View = 'universe' | 'orbital' | 'tree';
 
@@ -17,6 +20,8 @@ export function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [historicalId, setHistoricalId] = useState<string | null>(null);
   const [historyKey, setHistoryKey] = useState(0);
+  const [revealTrigger, setRevealTrigger] = useState(0);
+  const [revealStep, setRevealStep] = useState<{ ideaId: string; phase: 'in' | 'hold' | 'out' } | null>(null);
   const selected = selectedId ? state.ideas[selectedId] ?? null : null;
 
   // Refresh history list whenever a tournament completes.
@@ -25,6 +30,18 @@ export function App() {
       setHistoryKey((k) => k + 1);
     }
   }, [state.phase]);
+
+  // Trigger champion reveal reel when a tournament completes (and we have champions).
+  const lastCompleteTs = state.completeTs;
+  useEffect(() => {
+    if (lastCompleteTs && state.champions.length > 0) {
+      setRevealTrigger((k) => k + 1);
+    }
+  }, [lastCompleteTs, state.champions.length]);
+
+  const totalIdeas = state.totalIdeas;
+  const aliveCount = state.aliveCount;
+  const breaking = useMemo(() => state.breakingNews, [state.breakingNews]);
 
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
@@ -60,15 +77,28 @@ export function App() {
           <ViewBtn label="tree" active={view === 'tree'} onClick={() => setView('tree')} />
         </div>
         {view === 'universe' ? (
-          <UniverseView
-            ideas={state.ideas}
-            pairFlashes={state.pairFlashes}
-            killBursts={state.killBursts}
-            champions={state.champions}
-            activeDuel={state.activeDuel}
-            selectedId={selectedId}
-            onSelect={setSelectedId}
-          />
+          <>
+            <UniverseView
+              ideas={state.ideas}
+              pairFlashes={state.pairFlashes}
+              killBursts={state.killBursts}
+              champions={state.champions}
+              activeDuel={state.activeDuel}
+              taunts={state.taunts}
+              reveal={revealStep}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+            />
+            <PhaseChyron phase={state.phase} round={state.round} alive={aliveCount} total={totalIdeas} cinematic={state.cinematic} />
+            <BreakingNews items={breaking} />
+            <ChampionReveal
+              trigger={revealTrigger}
+              champions={state.champions}
+              ideas={state.ideas}
+              onActiveChange={setRevealStep}
+              onDone={() => setRevealStep(null)}
+            />
+          </>
         ) : view === 'orbital' ? (
           <OrbitalView3D
             ideas={state.ideas}

@@ -4,6 +4,7 @@ import { generateIdeas } from './generation/generate.js';
 import { dedupeIdeas } from './judging/dedup.js';
 import { scoreAllIdeas } from './judging/rubric.js';
 import { runSwissRound, pairSwiss, judgePairSilent } from './judging/pairwise.js';
+import { generateTaunt } from './judging/taunt.js';
 import { sleep } from './util/sleep.js';
 import { deepReview } from './judging/deep.js';
 import { layoutIdea, categoryColor } from './layout.js';
@@ -110,8 +111,21 @@ export async function runTournament(opts: Partial<TournamentOptions> | undefined
     const cutoff = Math.max(o.finalists, Math.ceil(sortedByScore.length * 0.4));
     const survivors = sortedByScore.slice(0, cutoff);
     const survivorSet = new Set(survivors.map((s) => s.idea.id));
-    for (const state of Object.values(tournament.ideas)) {
-      if (!survivorSet.has(state.idea.id)) {
+    const culls = Object.values(tournament.ideas).filter((s) => !survivorSet.has(s.idea.id));
+    if (o.cinematic && culls.length > 0) {
+      // Sort cull order from worst score upward so the slowest deaths trickle to the better-but-not-quite-good-enough ideas.
+      culls.sort((a, b) => a.meanScore - b.meanScore);
+      const cascadeMs = Math.min(4000, culls.length * 110);
+      const step = cascadeMs / culls.length;
+      for (const state of culls) {
+        state.alive = false;
+        state.killedInRound = 1;
+        store.killIdea(state.idea.id, 1);
+        bus.emit({ type: 'idea:killed', ideaId: state.idea.id, reason: 'rubric-cull', round: 1, ts: Date.now() });
+        await sleep(step);
+      }
+    } else {
+      for (const state of culls) {
         state.alive = false;
         state.killedInRound = 1;
         store.killIdea(state.idea.id, 1);
@@ -131,9 +145,14 @@ export async function runTournament(opts: Partial<TournamentOptions> | undefined
         // → emit pairwise:result so the camera/UI gets the full cinematic window.
         const pairs = pairSwiss(alive);
         results = [];
+        const isMockMode = config.mockMode;
         for (const [a, b] of pairs) {
           bus.emit({ type: 'duel:start', aId: a.idea.id, bId: b.idea.id, round: tournament.round, expectedMs: o.duelMs ?? 2500, ts: Date.now() });
           const judgePromise = judgePairSilent(a, b, bus);
+          // Generate a taunt in parallel — fire-and-forget, emitted whenever it lands.
+          generateTaunt(a, b, isMockMode).then((quote) => {
+            if (quote) bus.emit({ type: 'duel:taunt', aId: a.idea.id, bId: b.idea.id, quote, ts: Date.now() });
+          }).catch(() => { /* taunts are decorative; never crash on failure */ });
           await sleep(o.duelMs ?? 2500);
           const res = await judgePromise;
           if (res) {

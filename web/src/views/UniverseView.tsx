@@ -4,7 +4,7 @@ import { Stars, Html, Sparkles } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import type { IdeaState } from '../types';
-import type { ActiveDuel } from '../hooks/useTournament';
+import { duelKey, type ActiveDuel } from '../hooks/useTournament';
 
 // Universe view: ideas as physical bodies that drift and converge for battles.
 // Cinematic mode: server pacing emits duel:start, sleep, pairwise:result. We
@@ -24,6 +24,8 @@ interface Props {
   killBursts: KillBurstSpec[];
   champions: string[];
   activeDuel: ActiveDuel | null;
+  taunts: Record<string, string>;
+  reveal: { ideaId: string; phase: 'in' | 'hold' | 'out' } | null;
   selectedId?: string | null;
   onSelect: (id: string | null) => void;
 }
@@ -172,9 +174,10 @@ function OrbsLayer({ ideas, activeDuel, selectedId, onSelect, pairFlashes }: Orb
 interface DuelOverlayProps {
   ideas: Record<string, IdeaState>;
   duel: ActiveDuel;
+  taunt?: string;
 }
 
-function DuelOverlay({ ideas, duel }: DuelOverlayProps) {
+function DuelOverlay({ ideas, duel, taunt }: DuelOverlayProps) {
   const a = ideas[duel.aId];
   const b = ideas[duel.bId];
   if (!a || !b) return null;
@@ -215,6 +218,11 @@ function DuelOverlay({ ideas, duel }: DuelOverlayProps) {
             </div>
           </div>
           <div style={{ opacity: 0.45, fontSize: 10, marginTop: 6 }}>elo {a.elo.toFixed(0)} vs {b.elo.toFixed(0)}</div>
+          {taunt && (
+            <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.08)', fontSize: 11, fontStyle: 'italic', color: '#FFE066', opacity: 0.92 }}>
+              "{taunt}"
+            </div>
+          )}
         </div>
       </Html>
       <Sparkles count={40} scale={[1.5, 0.8, 1.5]} position={[mid.x, 0.4, mid.z]} speed={1.2} size={3} color="#FFE066" opacity={0.9} />
@@ -227,11 +235,13 @@ function CinematicCamera({
   activeDuel,
   champions,
   phase,
+  reveal,
 }: {
   ideas: Record<string, IdeaState>;
   activeDuel: ActiveDuel | null;
   champions: string[];
   phase: string;
+  reveal: { ideaId: string; phase: 'in' | 'hold' | 'out' } | null;
 }) {
   const { camera } = useThree();
   const targetPos = useRef(new THREE.Vector3(0, 5, 8));
@@ -239,6 +249,21 @@ function CinematicCamera({
 
   useFrame((_, dt) => {
     const t = performance.now() * 0.0001;
+
+    if (reveal) {
+      // Slow close-up dolly around the revealed champion
+      const s = ideas[reveal.ideaId];
+      if (s) {
+        const center = new THREE.Vector3(s.position.x * SCALE, 0, s.position.y * SCALE);
+        const orbit = t * 2;
+        const dist = 3.4;
+        targetPos.current.set(center.x + Math.cos(orbit) * dist, 1.6, center.z + Math.sin(orbit) * dist);
+        targetLook.current.copy(center).setY(0.4);
+        camera.position.lerp(targetPos.current, Math.min(1, dt * 1.6));
+        camera.lookAt(targetLook.current);
+        return;
+      }
+    }
 
     if (activeDuel) {
       // Slow orbit two-shot of the duel midpoint, with enough distance for the card.
@@ -302,57 +327,7 @@ function CinematicCamera({
   return null;
 }
 
-function PhaseChyron({ phase, round, alive, total, cinematic }: { phase: string; round: number; alive: number; total: number; cinematic: boolean }) {
-  const [visible, setVisible] = useState(false);
-  const [text, setText] = useState('');
-  const lastPhase = useRef(phase);
-  useEffect(() => {
-    if (phase === lastPhase.current) return;
-    lastPhase.current = phase;
-    if (phase === 'idle') return;
-    const labels: Record<string, string> = {
-      generating: 'PHASE I · GENERATION',
-      rubric: 'PHASE II · RUBRIC SCORING',
-      culling: 'PHASE III · CULL',
-      pairwise: `PHASE IV · BATTLES${round > 0 ? ` · ROUND ${round}` : ''}`,
-      deep: 'PHASE V · FINAL JUDGMENT',
-      complete: 'COMPLETE',
-    };
-    setText(labels[phase] ?? phase.toUpperCase());
-    setVisible(true);
-    const t = setTimeout(() => setVisible(false), 2200);
-    return () => clearTimeout(t);
-  }, [phase, round]);
-
-  return (
-    <div style={{
-      position: 'absolute', top: '40%', left: 0, right: 0,
-      pointerEvents: 'none', textAlign: 'center',
-      opacity: visible ? 1 : 0,
-      transform: visible ? 'translateY(0)' : 'translateY(-12px)',
-      transition: 'opacity 350ms ease, transform 350ms ease',
-      zIndex: 4,
-    }}>
-      <div style={{
-        display: 'inline-block',
-        background: 'rgba(8,10,18,0.7)',
-        backdropFilter: 'blur(10px)',
-        border: '1px solid rgba(255,255,255,0.08)',
-        padding: '14px 28px', borderRadius: 10,
-        fontSize: 22, letterSpacing: 4, fontWeight: 700,
-        color: '#dfe3ee',
-        textShadow: '0 0 30px rgba(124,196,255,0.5)',
-      }}>
-        {text}
-        <div style={{ fontSize: 11, letterSpacing: 1, opacity: 0.55, marginTop: 6, fontWeight: 400 }}>
-          {alive}/{total} alive {cinematic ? '· cinematic mode' : ''}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export function UniverseView({ ideas, pairFlashes, killBursts, champions, activeDuel, selectedId, onSelect }: Props) {
+export function UniverseView({ ideas, pairFlashes, killBursts, champions, activeDuel, taunts, reveal, selectedId, onSelect }: Props) {
   const [hovered, setHovered] = useState<IdeaState | null>(null);
   void hovered; void killBursts; void pairFlashes;
 
@@ -383,8 +358,10 @@ export function UniverseView({ ideas, pairFlashes, killBursts, champions, active
           <gridHelper args={[60, 60, '#1c2030', '#15182a']} position={[0, -0.05, 0]} />
 
           <OrbsLayer ideas={ideas} pairFlashes={pairFlashes} activeDuel={activeDuel} selectedId={selectedId} onSelect={onSelect} />
-          {activeDuel && <DuelOverlay ideas={ideas} duel={activeDuel} />}
-          <CinematicCamera ideas={ideas} activeDuel={activeDuel} champions={champions} phase={phase} />
+          {activeDuel && (
+            <DuelOverlay ideas={ideas} duel={activeDuel} taunt={taunts[duelKey(activeDuel.aId, activeDuel.bId)]} />
+          )}
+          <CinematicCamera ideas={ideas} activeDuel={activeDuel} champions={champions} phase={phase} reveal={reveal} />
 
           <EffectComposer>
             <Bloom intensity={0.95} luminanceThreshold={0.18} luminanceSmoothing={0.7} mipmapBlur />
@@ -406,4 +383,3 @@ export function UniverseView({ ideas, pairFlashes, killBursts, champions, active
   );
 }
 
-export function makePhaseChyron() { return PhaseChyron; }
