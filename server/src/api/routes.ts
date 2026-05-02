@@ -5,6 +5,7 @@ import { attachSse } from '../events/sse.js';
 import { config } from '../config.js';
 import { listTournaments, loadTournamentState, loadTournamentEvents } from '../db/store.js';
 import { setMockOverride } from '../llm/factory.js';
+import { listTemplates } from '../generation/templates.js';
 
 export function buildRouter() {
   const r = express.Router();
@@ -44,6 +45,10 @@ export function buildRouter() {
   r.get('/api/tournaments/:id/events', (req, res) => {
     const events = loadTournamentEvents(req.params.id);
     res.json({ events });
+  });
+
+  r.get('/api/templates', (_req, res) => {
+    res.json({ templates: listTemplates() });
   });
 
   r.post('/api/start', express.json(), async (req, res) => {

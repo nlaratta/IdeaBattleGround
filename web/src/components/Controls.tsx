@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 export interface ModelChoice {
   generator: string;
@@ -7,9 +7,15 @@ export interface ModelChoice {
   taunt: string;
 }
 
+interface TemplateInfo {
+  id: string;
+  name: string;
+  description: string;
+}
+
 interface Props {
   phase: string;
-  onStart: (opts: { ideaCount: number; judgesPerIdea: number; swissRounds: number; finalists: number; cinematic?: boolean; streamMode?: boolean; mock?: boolean; duelMs?: number; lingerMs?: number; models?: ModelChoice }) => void;
+  onStart: (opts: { ideaCount: number; judgesPerIdea: number; swissRounds: number; finalists: number; cinematic?: boolean; streamMode?: boolean; mock?: boolean; duelMs?: number; lingerMs?: number; models?: ModelChoice; template?: string; extraConstraints?: string }) => void;
   defaultCinematic?: boolean;
 }
 
@@ -29,8 +35,24 @@ export function Controls({ phase, onStart, defaultCinematic }: Props) {
   const [showModels, setShowModels] = useState(false);
   const [showStream, setShowStream] = useState(true);
 
+  // Idea-recipe controls
+  const [templates, setTemplates] = useState<TemplateInfo[]>([]);
+  const [template, setTemplate] = useState('default');
+  const [extraConstraints, setExtraConstraints] = useState('');
+  const [showRecipe, setShowRecipe] = useState(true);
+
+  useEffect(() => {
+    let cancel = false;
+    fetch('/api/templates')
+      .then((r) => r.json())
+      .then((d) => { if (!cancel) setTemplates(d.templates ?? []); })
+      .catch(() => { /* offline-tolerant */ });
+    return () => { cancel = true; };
+  }, []);
+
   const running = phase !== 'idle' && phase !== 'complete';
   const setModel = (k: keyof ModelChoice) => (v: string) => setModels((m) => ({ ...m, [k]: v }));
+  const tplInfo = templates.find((t) => t.id === template);
 
   return (
     <div style={{ padding: 12, fontSize: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -40,6 +62,50 @@ export function Controls({ phase, onStart, defaultCinematic }: Props) {
       <Row label="swiss rounds" value={swissRounds} onChange={setSwissRounds} min={1} max={8} />
       <Row label="finalists" value={finalists} onChange={setFinalists} min={2} max={16} />
       <ToggleRow label="mock (this run)" value={mock} onChange={setMock} />
+
+      <div style={{ marginTop: 4, paddingTop: 6, borderTop: '1px solid #1c2030' }}>
+        <button
+          onClick={() => setShowRecipe((v) => !v)}
+          style={{
+            background: 'transparent', color: '#dfe3ee', border: 'none', cursor: 'pointer',
+            padding: 0, fontSize: 11, opacity: 0.7, letterSpacing: 1, textTransform: 'uppercase',
+          }}
+        >
+          {showRecipe ? '▾' : '▸'} Idea Recipe
+        </button>
+        {showRecipe && (
+          <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <SelectRow
+              label="template"
+              value={template}
+              onChange={setTemplate}
+              options={templates.length > 0 ? templates.map((t) => t.id) : ['default']}
+              labelMap={Object.fromEntries(templates.map((t) => [t.id, t.name]))}
+            />
+            {tplInfo && (
+              <div style={{ fontSize: 10, opacity: 0.55, marginLeft: 110, lineHeight: 1.4 }}>
+                {tplInfo.description}
+              </div>
+            )}
+            <div>
+              <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 4 }}>extra constraints</div>
+              <textarea
+                value={extraConstraints}
+                onChange={(e) => setExtraConstraints(e.target.value)}
+                placeholder='e.g. "must be addressable via paid search; b2b SaaS only"'
+                rows={3}
+                style={{
+                  width: '100%', resize: 'vertical', minHeight: 56,
+                  background: '#1a1d28', color: '#dfe3ee',
+                  border: '1px solid #2a3550', borderRadius: 4,
+                  padding: '6px 8px', fontSize: 11, fontFamily: 'inherit',
+                  boxSizing: 'border-box',
+                }}
+              />
+            </div>
+          </div>
+        )}
+      </div>
 
       <div style={{ marginTop: 4, paddingTop: 6, borderTop: '1px solid #1c2030' }}>
         <button
@@ -90,7 +156,7 @@ export function Controls({ phase, onStart, defaultCinematic }: Props) {
 
       <button
         disabled={running}
-        onClick={() => onStart({ ideaCount, judgesPerIdea, swissRounds, finalists, cinematic, streamMode, mock, duelMs, lingerMs, models })}
+        onClick={() => onStart({ ideaCount, judgesPerIdea, swissRounds, finalists, cinematic, streamMode, mock, duelMs, lingerMs, models, template, extraConstraints })}
         style={{
           marginTop: 6,
           background: running ? '#2a2e3a' : '#3a4f7a',
@@ -106,7 +172,7 @@ export function Controls({ phase, onStart, defaultCinematic }: Props) {
   );
 }
 
-function SelectRow({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: readonly string[] }) {
+function SelectRow({ label, value, onChange, options, labelMap }: { label: string; value: string; onChange: (v: string) => void; options: readonly string[]; labelMap?: Record<string, string> }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
       <span style={{ width: 110, opacity: 0.7 }}>{label}</span>
@@ -124,7 +190,7 @@ function SelectRow({ label, value, onChange, options }: { label: string; value: 
         }}
       >
         {options.map((opt) => (
-          <option key={opt} value={opt}>{opt}</option>
+          <option key={opt} value={opt}>{labelMap?.[opt] ?? opt}</option>
         ))}
       </select>
     </div>

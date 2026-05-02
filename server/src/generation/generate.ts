@@ -5,7 +5,7 @@ import { getLlm } from '../llm/factory.js';
 import { GENERATOR_SYSTEM, buildGeneratorUserPrompt } from './prompts.js';
 import { mapWithLimit } from '../util/concurrent.js';
 import { config } from '../config.js';
-import { buildMatrix } from './matrix.js';
+import { buildMatrix, type MatrixOverrides } from './matrix.js';
 import type { EventBus } from '../events/bus.js';
 
 const ideaSchema = z.object({
@@ -18,12 +18,12 @@ const ideaSchema = z.object({
   tags: z.array(z.string()).max(8).default([]),
 });
 
-async function generateOne(cell: SamplingCell, model?: string): Promise<Idea | null> {
+async function generateOne(cell: SamplingCell, model?: string, themeNote?: string, extraConstraints?: string): Promise<Idea | null> {
   const llm = getLlm();
   try {
     const res = await llm.call({
       systemPrompt: GENERATOR_SYSTEM,
-      userPrompt: buildGeneratorUserPrompt(cell),
+      userPrompt: buildGeneratorUserPrompt(cell, themeNote, extraConstraints),
       retries: 1,
       model,
     });
@@ -53,10 +53,13 @@ export async function generateIdeas(
   bus: EventBus,
   rngSeed?: number,
   model?: string,
+  overrides?: MatrixOverrides,
+  themeNote?: string,
+  extraConstraints?: string,
 ): Promise<Idea[]> {
-  const cells = buildMatrix({ count, rngSeed });
+  const cells = buildMatrix({ count, rngSeed, overrides });
   const results = await mapWithLimit(cells, config.generationConcurrency, async (cell) => {
-    const idea = await generateOne(cell, model);
+    const idea = await generateOne(cell, model, themeNote, extraConstraints);
     if (idea) bus.emit({ type: 'idea:generated', idea, ts: Date.now() });
     return idea;
   });

@@ -13,6 +13,7 @@ import type { EventBus } from './events/bus.js';
 import { mapWithLimit } from './util/concurrent.js';
 import { config } from './config.js';
 import * as store from './db/store.js';
+import { getTemplate } from './generation/templates.js';
 
 export interface ModelOverrides {
   generator?: string;
@@ -37,6 +38,10 @@ export interface TournamentOptions {
   lingerMs?: number;
   /** Per-phase model overrides. Aliases (sonnet/opus/haiku) or full model IDs. */
   models?: ModelOverrides;
+  /** Idea recipe template id (see generation/templates.ts). */
+  template?: string;
+  /** Free-text additional constraints appended to the generator prompt. */
+  extraConstraints?: string;
 }
 
 const DEFAULTS: TournamentOptions = {
@@ -82,9 +87,14 @@ export async function runTournament(opts: Partial<TournamentOptions> | undefined
 
   const models = o.models ?? {};
 
+  const template = getTemplate(o.template);
+
   try {
     setPhase(tournament, 'generating', bus);
-    const ideas = await generateIdeas(o.ideaCount, bus, o.rngSeed, models.generator);
+    const ideas = await generateIdeas(
+      o.ideaCount, bus, o.rngSeed, models.generator,
+      template.overrides, template.themeNote, o.extraConstraints,
+    );
     // Stash all generated ideas — even ones that get culled — so the DB has full provenance.
     for (const idea of ideas) {
       const pos = layoutIdea(idea);

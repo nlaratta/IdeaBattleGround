@@ -19,8 +19,8 @@ Hard rules:
 - The "pitch" must be a name, NOT a sentence ending in a period.
 `;
 
-export function buildGeneratorUserPrompt(cell: SamplingCell): string {
-  return [
+export function buildGeneratorUserPrompt(cell: SamplingCell, themeNote?: string, extraConstraints?: string): string {
+  const lines = [
     'Generate ONE idea using these dials:',
     `- domain: ${cell.domain}`,
     `- audience: ${cell.audience}`,
@@ -30,7 +30,15 @@ export function buildGeneratorUserPrompt(cell: SamplingCell): string {
     `- vibe: ${cell.vibe}`,
     `- persona to embody: ${cell.persona}`,
     `- seed words (use as diversity primer, not requirements): ${cell.seedWords.join(', ')}`,
-    '',
-    'Return only the JSON object.',
-  ].join('\n');
+  ];
+  if (themeNote) {
+    lines.push('', 'Thematic guide for this tournament:');
+    lines.push(themeNote);
+  }
+  if (extraConstraints && extraConstraints.trim()) {
+    lines.push('', 'Operator override (highest priority — bend the dials toward this):');
+    lines.push(extraConstraints.trim());
+  }
+  lines.push('', 'Return only the JSON object.');
+  return lines.join('\n');
 }
