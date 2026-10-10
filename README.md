@@ -1,87 +1,106 @@
-# Idea Battleground
+<p align="center">
+  <img src=".github/banner.png" alt="Idea Battleground" width="100%">
+</p>
 
-AI Idea Colosseum — agents generate competing product ideas, agents judge them, and the survivors battle in tournament rounds. Live, watchable, Twitch-able.
+<p align="center">
+  <a href="https://github.com/nlaratta/IdeaBattleGround/actions/workflows/ci.yml"><img src="https://github.com/nlaratta/IdeaBattleGround/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2D6A4F" alt="MIT license"></a>
+</p>
 
-The eventual flow:
-1. **Generate** thousands of ideas in parallel using a sampling matrix (domain × audience × business model × constraint × time horizon × vibe × persona) so diversity is structural, not just random words.
-2. **Cull** near-duplicates via lightweight similarity, then run a parallel rubric pass (novelty / feasibility / market / weirdness / buildability) to slice to the top tier.
-3. **Battle** survivors in Swiss-style pairwise rounds with Elo ratings.
-4. **Final review** by a deep judge that writes critiques and produces champions.
-5. **Visualize** the whole thing live: orbital "gravitational" view of orbs as ideas, with auto-zoom and a tree view for lineage.
+An AI idea colosseum. Agents generate product ideas from a structured sampling matrix, cull duplicates, score the rest on a rubric, battle the survivors in Swiss-style Elo rounds, and a deep judge crowns champions, all visualized live in the browser.
 
-## Status (v0.1)
-
-What works today:
-- Full tournament pipeline (server) with mock or live LLM provider.
-- Live LLM provider runs through `@anthropic-ai/claude-agent-sdk` — no API key required, uses your local Claude Code subscription auth.
-- Mock provider is the default so you can develop and test without burning calls.
-- Live SSE stream of every event (`tournament:start`, `idea:generated`, `idea:scored`, `idea:killed`, `pairwise:result`, `champion`, `phase:change`, …).
-- Web UI:
-  - **Orbital view** — canvas with category-colored orbs sized by Elo; pair-flash beams between duelists; auto-follow camera with manual pan/zoom (wheel + drag).
-  - **Tree view** — column-per-round bracket showing dupes / culled / survivors / champions.
-  - **Leaderboard**, **ticker**, **inspector** (rubric scores + cell metadata), **controls** (counts, judges, rounds, finalists), collapsible side panels.
-
-What's stubbed / not yet done:
-- Embedding-based layout (currently uses category-centroid + jitter; replace with UMAP over real embeddings when budget allows).
-- Mutation / crossover rounds (round-2 idea-rewrite + hybridization).
-- Build-on-stream phase (Cloudflare Pages/Workers deploy from a Claude Code agent — separate milestone).
-- SQLite persistence of historical tournaments (event bus is in-memory only).
-- Director shot composer (smoothed cut/zoom planner for streaming).
+<p align="center">
+  <img src="docs/media/tournament.gif" alt="A mock tournament running: ideas orbit, duel, and the champions are revealed" width="100%">
+</p>
 
 ## Quick start
 
+Needs Node 22 or newer. This runs fully offline in mock mode, no keys or login:
+
 ```bash
+git clone https://github.com/nlaratta/IdeaBattleGround.git
+cd IdeaBattleGround
 npm install
 npm run dev
 ```
 
-This starts:
-- API server on `http://localhost:8787` (mock mode by default).
-- Web UI on `http://localhost:5173` with `/api` proxied to the server.
+Open <http://localhost:5173> and press **start tournament**. The API runs on `:8787`.
 
-To run with a real LLM, copy `.env.example` to `.env` and set `MOCK_MODE=false`. No API key needed if Claude Code is already authenticated on this machine — the Agent SDK uses your subscription.
+### Live mode (real Claude)
 
-## Layout
+Live mode uses the [Claude Agent SDK](https://docs.claude.com/en/docs/claude-code/sdk) with your local Claude Code login, so no API key is needed. Run `claude` once and `/login` if you haven't, then:
 
-```
-.
-├── server/              # Express + SSE + Agent SDK + tournament logic
-│   ├── src/
-│   │   ├── llm/         # provider interface + agent-sdk + mock impls
-│   │   ├── generation/  # sampling matrix + generator prompts
-│   │   ├── judging/     # rubric, swiss/elo pairwise, deep, dedup
-│   │   ├── events/      # event bus + SSE handler
-│   │   ├── api/         # express routes
-│   │   ├── runner.ts    # orchestrates the full tournament
-│   │   ├── layout.ts    # category-cluster orb positions + colors
-│   │   └── index.ts
-│   └── scripts/         # smoke tests
-└── web/                 # Vite + React + canvas
-    └── src/
-        ├── views/       # OrbitalView, TreeView
-        ├── components/  # Leaderboard, Ticker, Inspector, Controls
-        ├── hooks/       # useTournament (SSE → reducer)
-        └── App.tsx
+```bash
+MOCK_MODE=false npm run dev
 ```
 
-## Knobs
+or copy `.env.example` to `.env` and set `MOCK_MODE=false`. The **mock (this run)** toggle in the UI follows the server setting and can override it per run. Live runs spend your Claude usage: a 6-idea tournament is roughly 16 model calls, a 30-idea default one a few hundred.
 
-Server `.env`:
-- `MOCK_MODE` — `true` (default) for offline mock provider, `false` to call live Claude.
-- `GENERATOR_MODEL`, `JUDGE_MODEL`, `DEEP_JUDGE_MODEL` — `sonnet`/`opus`/`haiku` aliases or full model IDs.
-- `GENERATION_CONCURRENCY`, `JUDGING_CONCURRENCY` — parallel LLM calls.
+To check the live path without the UI, run a tiny tournament from the command line:
 
-UI controls:
-- `ideas` — how many to generate this run.
-- `judges/idea` — independent rubric scores per idea (averaged).
-- `swiss rounds` — pairwise rounds.
-- `finalists` — kept for the deep-judge phase.
+```bash
+MOCK_MODE=false IDEAS=6 JUDGES=1 ROUNDS=2 FINALISTS=2 npm --workspace server run smoke:tournament
+```
 
-## Why these design choices
+### Tests
 
-- **Structural diversity > word seeds.** Random dictionary words alone produce cosmetic variety on top of identical archetypes. The matrix forces orthogonal-axis combinations (a hardware tinkerer × elderly users × subscription-only × must-work-offline cell behaves nothing like a contrarian-VC × Gen-Z × ad-supported × must-be-illegal-indoors cell).
-- **Tiered judging.** All-pairs voting is O(n²); we run cheap parallel rubric on every idea, then Swiss-style pairwise on the top tier (~O(n log n)), then expensive deep judge on a handful. Critique-before-score reduces format/sycophancy bias.
-- **Live event bus + SSE.** SSE replays buffered backlog to late-joining clients, so any browser refresh gets the full run.
-- **Canvas orbital view.** Renders 100s–1000s of orbs cheaply. Category-cluster layout means similar ideas literally cluster in space, so the macro view is informative even when zoomed all the way out.
+```bash
+npm test                  # everything
+npm run test:unit         # Elo, Swiss pairing, dedupe, rubric aggregation
+npm run test:integration  # full mock tournament, headless
+```
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the deeper design notes.
+## How it works
+
+1. **Generate.** Ideas come from a sampling matrix (domain, audience, business model, constraint, time horizon, vibe, persona), so variety is structural rather than random words. Recipe templates and free-text constraints bias a run toward a theme.
+2. **Dedupe and rubric.** Near-duplicates are dropped with token Jaccard similarity. Each remaining idea is scored by N independent judges on novelty, feasibility, market, weirdness and buildability, critique first, and the scores are averaged. The top 40% (never fewer than the finalist count) survive.
+3. **Battle.** Survivors fight pairwise in Swiss rounds: sorted by Elo, paired with the closest-rated opponent they have not met, K=32 updates after each judged duel.
+4. **Deep review.** The top finalists by Elo get a long-form review (strongest point, fatal flaw, verdict, score). The top three by deep score are crowned.
+5. **Watch it.** Every step is an event on an in-memory bus streamed over SSE (late joiners get the backlog replayed) and persisted to SQLite, so past tournaments can be replayed from the History panel.
+
+<p align="center">
+  <img src="docs/media/orbital-mid-battle.png" alt="Orbital view mid-battle: two ideas joined by a duel beam" width="49%">
+  <img src="docs/media/tree-final.png" alt="Tree view at the end: eliminated ideas by round, survivors and champions" width="49%">
+</p>
+
+The web UI has three views: **universe** (a cinematic, paced battle mode with duel cards, taunts and a champion reveal), **orbital** (a 3D field of orbs sized by Elo, with auto-follow or manual camera) and **tree** (a column per round: duplicates, culls, survivors, champions). Side panels hold the leaderboard, ticker, an inspector with rubric scores and sampling-cell metadata, run controls, and history.
+
+### Roadmap (not built yet)
+
+- Embedding-based layout (orbs are currently placed by category cluster plus jitter).
+- Mutation and crossover rounds that rewrite or combine survivors.
+- A build-on-stream phase where a champion gets scaffolded and deployed by an agent.
+- Faster near-duplicate detection (MinHash or embeddings) for tens of thousands of ideas.
+
+## Configuration
+
+Server settings, in `.env` or the environment (see `.env.example`):
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `MOCK_MODE` | `true` | `false` calls live Claude |
+| `GENERATOR_MODEL`, `JUDGE_MODEL`, `DEEP_JUDGE_MODEL` | `sonnet`, `sonnet`, `opus` | model aliases or full IDs (live) |
+| `GENERATION_CONCURRENCY`, `JUDGING_CONCURRENCY` | `6` | parallel LLM calls |
+| `PORT`, `DATA_DIR` | `8787`, `./data` | API port and SQLite location |
+
+The UI sets ideas, judges per idea, Swiss rounds, finalists, pacing and per-phase models for each run.
+
+## Project structure
+
+```
+server/            Express + SSE + Agent SDK + tournament logic
+  src/llm/         provider interface, Agent SDK and mock providers
+  src/generation/  sampling matrix, templates, generator prompts
+  src/judging/     rubric, Swiss pairing and Elo, deep review, dedupe
+  src/db/          SQLite persistence
+  test/            unit tests and the mock-tournament integration test
+web/               Vite + React + three.js UI
+  scripts/         capture-media.mjs regenerates docs/media
+docs/              architecture notes and README media
+```
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design notes. To regenerate the README media, run `npm run dev` and then `npm run media` (needs Google Chrome and ffmpeg).
+
+## License
+
+[MIT](LICENSE) © Noah Laratta

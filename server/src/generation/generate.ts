@@ -44,6 +44,7 @@ async function generateOne(cell: SamplingCell, model?: string, themeNote?: strin
       createdAt: Date.now(),
     };
   } catch (e) {
+    console.warn(`[generate] idea call failed: ${(e as Error).message}`);
     return null;
   }
 }

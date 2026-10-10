@@ -2,7 +2,7 @@
   "name": "idea-battleground",
   "private": true,
   "version": "0.1.0",
-  "description": "AI Idea Colosseum — agents generate, battle, and refine ideas in tournament rounds, visualized live.",
+  "description": "AI Idea Colosseum \u2014 agents generate, battle, and refine ideas in tournament rounds, visualized live.",
   "workspaces": [
     "server",
     "web"
@@ -12,9 +12,22 @@
     "dev:server": "npm --workspace server run dev",
     "dev:web": "npm --workspace web run dev",
     "build": "npm --workspace server run build && npm --workspace web run build",
-    "start": "npm --workspace server run start"
+    "start": "npm --workspace server run start",
+    "test": "npm --workspace server run test",
+    "test:unit": "npm --workspace server run test:unit",
+    "test:integration": "npm --workspace server run test:integration",
+    "media": "npm --workspace web run media"
   },
   "devDependencies": {
     "concurrently": "^9.1.0"
+  },
+  "license": "MIT",
+  "author": "Noah Laratta",
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nlaratta/IdeaBattleGround.git"
   }
 }

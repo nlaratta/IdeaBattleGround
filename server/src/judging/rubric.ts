@@ -85,3 +85,15 @@ export async function scoreAllIdeas(
   }
   return byId;
 }
+
+/** Mean of the judges' totals; 0 when every judge call failed (avoids NaN poisoning sorts). */
+export function meanTotal(scores: Array<{ total: number }>): number {
+  return scores.length === 0 ? 0 : scores.reduce((a, b) => a + b.total, 0) / scores.length;
+}
+
+/** Rubric cull: keep the top 40% by mean score, but never fewer than `finalists`. */
+export function selectRubricSurvivors<T extends { meanScore: number }>(states: T[], finalists: number): T[] {
+  const sorted = [...states].sort((a, b) => b.meanScore - a.meanScore);
+  const cutoff = Math.max(finalists, Math.ceil(sorted.length * 0.4));
+  return sorted.slice(0, cutoff);
+}

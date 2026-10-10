@@ -30,7 +30,7 @@ export function Controls({ phase, onStart, defaultCinematic }: Props) {
   const [streamMode, setStreamMode] = useState(false);
   const [duelMs, setDuelMs] = useState(2500);
   const [lingerMs, setLingerMs] = useState(2500);
-  const [mock, setMock] = useState(false);
+  const [mock, setMock] = useState(true);
   const [models, setModels] = useState<ModelChoice>({ generator: 'sonnet', judge: 'sonnet', deepJudge: 'opus', taunt: 'haiku' });
   const [showModels, setShowModels] = useState(false);
   const [showStream, setShowStream] = useState(true);
@@ -40,6 +40,17 @@ export function Controls({ phase, onStart, defaultCinematic }: Props) {
   const [template, setTemplate] = useState('default');
   const [extraConstraints, setExtraConstraints] = useState('');
   const [showRecipe, setShowRecipe] = useState(true);
+
+  // Follow the server's MOCK_MODE by default so the first click never
+  // silently flips a mock install into a live (billed) run.
+  useEffect(() => {
+    let cancel = false;
+    fetch('/api/health')
+      .then((r) => r.json())
+      .then((d) => { if (!cancel && typeof d.mockMode === 'boolean') setMock(d.mockMode); })
+      .catch(() => { /* offline-tolerant */ });
+    return () => { cancel = true; };
+  }, []);
 
   useEffect(() => {
     let cancel = false;

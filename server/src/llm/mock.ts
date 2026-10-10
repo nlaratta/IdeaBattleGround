@@ -82,7 +82,7 @@ function fill(template: string, rng: () => number): string {
 export class MockProvider implements LlmProvider {
   private callCount = 0;
   private rng: () => number;
-  constructor(seed = 1234) {
+  constructor(seed = (Date.now() ^ 0x9e3779b9) >>> 0) {
     let s = seed;
     this.rng = () => {
       s = (s * 1664525 + 1013904223) >>> 0;

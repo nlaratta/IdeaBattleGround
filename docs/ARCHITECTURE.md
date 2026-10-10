@@ -44,7 +44,7 @@ Why the persona is separate: persona prompts have measurably bigger effect on ge
 - Use `sonnet` here — fast and cheap enough to run on every idea.
 
 ### Pairwise (tier 2)
-- Swiss pairing: sort survivors by current Elo, pair adjacent. Repeats are tolerated for now; a real Swiss implementation would track prior pairings.
+- Swiss pairing: walk survivors in descending Elo and pair each with the closest-rated opponent it hasn't played yet (`pairSwiss` with a shared `played` set); rematches only if no fresh opponent remains. An odd field gives the lowest-rated idea a bye.
 - Elo K-factor 32. `INITIAL_ELO = 1200`.
 - Each round runs in parallel up to `JUDGING_CONCURRENCY`.
 - After all rounds, top `finalists` advance.
@@ -67,6 +67,10 @@ This is intentionally not embedding-based — embeddings cost time and compute, 
 
 When we add embeddings (likely Voyage AI to keep the Claude/Anthropic stack), swap `layoutIdea(idea)` to take the embedding and project via UMAP/t-SNE.
 
+## Persistence
+
+`server/src/db/store.ts` writes every tournament, idea, score, duel and event to SQLite (`DATA_DIR`, default `server/data/`). The History panel and `?historical=<id>` replay read from it.
+
 ## Event bus & SSE
 
 In-memory pub/sub with a 5000-event ring buffer. New SSE clients get the buffered backlog replayed before live events stream in — so refreshing the browser mid-tournament resumes seamlessly.
@@ -81,7 +85,7 @@ The reducer (`web/src/hooks/useTournament.ts`) computes:
 - `recentEloDeltas` — for the HUD delta display.
 - `ticker` — 60-row capped feed.
 
-The orbital view is a single `<canvas>` with a `requestAnimationFrame` loop. It does its own pan/zoom. Auto-follow targets the centroid of the top 20% by Elo and lerps to it; zoom adapts to alive count.
+The universe and orbital views are React Three Fiber (three.js) scenes with an auto-follow camera director that frames the alive ideas; the orbital view also supports manual camera control.
 
 Tree view is HTML (no canvas) — easier to scroll, click, and copy text from.
 
@@ -90,5 +94,4 @@ Tree view is HTML (no canvas) — easier to scroll, click, and copy text from.
 - **Mutation / crossover rounds.** Round 2 should optionally include "rewrite this idea with a twist" (mutation) and "combine these two survivors" (crossover) as separate generation calls feeding back into the same tournament.
 - **Director.** A shot-composer that emits a `camera:plan` event so the orbital view can dramatize key moments — closeups on close duels, slow-zoom-out on dominant winners, cuts to the leaderboard.
 - **Embedding-based layout.** Voyage AI embeddings → UMAP → 2D positions. Persist positions so reruns of the same tournament are visually consistent.
-- **Persistence.** SQLite for completed tournaments + their event log so we can scrub history and compare runs.
 - **Cloudflare deploy phase.** Once a champion exists, kick off a Claude Code agent (full agentic) that scaffolds a project, deploys to a CF subdomain, and posts the URL back to the event stream.
