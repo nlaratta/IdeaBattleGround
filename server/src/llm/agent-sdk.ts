@@ -2,15 +2,10 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { LlmCall, LlmProvider, LlmResult } from './index.js';
 import { extractJson } from '../util/json.js';
 
-const MODEL_ALIASES: Record<string, string> = {
-  sonnet: 'claude-sonnet-4-6',
-  opus: 'claude-opus-4-7',
-  haiku: 'claude-haiku-4-5-20251001',
-};
-
+// The SDK/CLI resolves the sonnet / opus / haiku aliases to the current model,
+// so they are passed through unchanged; full model IDs work too.
 function resolveModel(m?: string) {
-  if (!m) return MODEL_ALIASES.sonnet;
-  return MODEL_ALIASES[m] ?? m;
+  return m || 'sonnet';
 }
 
 export class AgentSdkProvider implements LlmProvider {
@@ -37,9 +32,13 @@ export class AgentSdkProvider implements LlmProvider {
       prompt: userPrompt,
       options: {
         model,
-        systemPrompt: { type: 'preset', preset: 'claude_code', append: systemPrompt },
-        allowedTools: [],
-        permissionMode: 'bypassPermissions',
+        // Plain system prompt (not the claude_code preset) keeps each call
+        // small and fast; no tools, no settings, a single turn.
+        systemPrompt,
+        tools: [],
+        settingSources: [],
+        maxTurns: 1,
+        persistSession: false,
       },
     });
 
@@ -53,7 +52,10 @@ export class AgentSdkProvider implements LlmProvider {
           }
         }
       } else if (message.type === 'result') {
-        // streaming complete
+        const r = message as { subtype?: string; is_error?: boolean; result?: string };
+        if (r.is_error || (r.subtype && r.subtype !== 'success')) {
+          throw new Error(`Claude Agent SDK error (${r.subtype ?? 'unknown'}): ${r.result ?? 'no detail'}`);
+        }
       }
     }
     return chunks.join('\n').trim();

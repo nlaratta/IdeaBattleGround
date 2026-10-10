@@ -6,7 +6,13 @@ globalBus.subscribe((e) => {
   counts[e.type] = (counts[e.type] ?? 0) + 1;
 });
 
-const t = await runTournament({ ideaCount: 24, judgesPerIdea: 2, swissRounds: 4, finalists: 4 }, globalBus);
+const num = (k: string, d: number) => Number(process.env[k] ?? d);
+const t = await runTournament({
+  ideaCount: num('IDEAS', 24),
+  judgesPerIdea: num('JUDGES', 2),
+  swissRounds: num('ROUNDS', 4),
+  finalists: num('FINALISTS', 4),
+}, globalBus);
 
 const ideas = Object.values(t.ideas);
 const alive = ideas.filter((i) => i.alive);
