@@ -83,6 +83,8 @@ function reducer(state: State, ev: Event): State {
         activeDuel: ev.phase !== 'pairwise' ? null : state.activeDuel,
         ticker: pushTicker(state.ticker, `phase: ${ev.phase}`, 'phase', ev.ts),
       };
+    case 'round:start':
+      return { ...state, round: ev.round };
     case 'idea:generated': {
       const id = ev.idea.id;
       const next: IdeaState = {

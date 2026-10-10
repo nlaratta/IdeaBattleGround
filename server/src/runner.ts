@@ -2,7 +2,7 @@ import { nanoid } from 'nanoid';
 import type { Event, IdeaState, RoundPhase, TournamentState } from './types.js';
 import { generateIdeas } from './generation/generate.js';
 import { dedupeIdeas } from './judging/dedup.js';
-import { scoreAllIdeas } from './judging/rubric.js';
+import { scoreAllIdeas, meanTotal, selectRubricSurvivors } from './judging/rubric.js';
 import { runSwissRound, pairSwiss, judgePairSilent } from './judging/pairwise.js';
 import { generateTaunt } from './judging/taunt.js';
 import { sleep } from './util/sleep.js';
@@ -95,6 +95,9 @@ export async function runTournament(opts: Partial<TournamentOptions> | undefined
       o.ideaCount, bus, o.rngSeed, models.generator,
       template.overrides, template.themeNote, o.extraConstraints,
     );
+    if (ideas.length === 0) {
+      throw new Error('No ideas were generated. In live mode check that Claude Code is logged in (`claude` then /login) and see server logs.');
+    }
     // Stash all generated ideas — even ones that get culled — so the DB has full provenance.
     for (const idea of ideas) {
       const pos = layoutIdea(idea);
@@ -130,16 +133,13 @@ export async function runTournament(opts: Partial<TournamentOptions> | undefined
       const state = tournament.ideas[id];
       if (!state) continue;
       state.scores = scores;
-      state.meanScore = scores.reduce((a, b) => a + b.total, 0) / scores.length;
+      state.meanScore = meanTotal(scores);
       scores.forEach((s, idx) => store.insertRubricScore(id, idx, s));
       store.updateIdeaScoreSummary(id, state.meanScore);
     }
 
     setPhase(tournament, 'culling', bus);
-    const sortedByScore = Object.values(tournament.ideas).sort((a, b) => b.meanScore - a.meanScore);
-    const cutoff = Math.max(o.finalists, Math.ceil(sortedByScore.length * 0.4));
-    const survivors = sortedByScore.slice(0, cutoff);
-    const survivorSet = new Set(survivors.map((s) => s.idea.id));
+    const survivorSet = new Set(selectRubricSurvivors(Object.values(tournament.ideas), o.finalists).map((s) => s.idea.id));
     const culls = Object.values(tournament.ideas).filter((s) => !survivorSet.has(s.idea.id));
     if (o.cinematic && culls.length > 0) {
       // Sort cull order from worst score upward so the slowest deaths trickle to the better-but-not-quite-good-enough ideas.
@@ -165,12 +165,14 @@ export async function runTournament(opts: Partial<TournamentOptions> | undefined
     if (o.cinematic) await sleep(2500);
 
     setPhase(tournament, 'pairwise', bus);
+    const played = new Set<string>();
     for (let r = 0; r < o.swissRounds; r++) {
       tournament.round = r + 1;
+      bus.emit({ type: 'round:start', round: tournament.round, ts: Date.now() });
       const alive = Object.values(tournament.ideas).filter((s) => s.alive);
       let results;
       if (o.cinematic) {
-        const pairs = pairSwiss(alive);
+        const pairs = pairSwiss(alive, played);
         results = [];
         const isMockMode = config.mockMode;
         const duelMs = o.duelMs ?? 2500;
@@ -212,7 +214,7 @@ export async function runTournament(opts: Partial<TournamentOptions> | undefined
           results = allRes.filter((r): r is NonNullable<typeof r> => r !== null);
         }
       } else {
-        results = await runSwissRound(alive, bus, models.judge);
+        results = await runSwissRound(alive, bus, models.judge, played);
       }
       tournament.pairwiseRoundsRun++;
       for (const res of results) {

@@ -81,18 +81,33 @@ export async function judgePairSilent(
   return judgePair(a, b, bus, { silent: true, model });
 }
 
-/** Generate Swiss-style pairings for one round. Pair adjacent in sorted-by-elo order, alternating to avoid same-as-last. */
-export function pairSwiss(states: IdeaState[]): Array<[IdeaState, IdeaState]> {
-  const sorted = [...states].sort((x, y) => y.elo - x.elo);
+export function pairKey(a: string, b: string): string {
+  return a < b ? `${a}|${b}` : `${b}|${a}`;
+}
+
+/**
+ * Generate Swiss-style pairings for one round: walk the field in descending
+ * Elo order and pair each idea with the closest-rated opponent it has not
+ * already played. If every remaining opponent is a rematch, fall back to the
+ * closest one. An odd field leaves the lowest-rated unpaired idea with a bye.
+ * Pass the same `played` set across rounds; it is updated with the new pairs.
+ */
+export function pairSwiss(states: IdeaState[], played: Set<string> = new Set()): Array<[IdeaState, IdeaState]> {
+  const pool = [...states].sort((x, y) => y.elo - x.elo);
   const pairs: Array<[IdeaState, IdeaState]> = [];
-  for (let i = 0; i + 1 < sorted.length; i += 2) {
-    pairs.push([sorted[i], sorted[i + 1]]);
+  while (pool.length >= 2) {
+    const a = pool.shift()!;
+    let idx = pool.findIndex((b) => !played.has(pairKey(a.idea.id, b.idea.id)));
+    if (idx === -1) idx = 0;
+    const [b] = pool.splice(idx, 1);
+    played.add(pairKey(a.idea.id, b.idea.id));
+    pairs.push([a, b]);
   }
   return pairs;
 }
 
-export async function runSwissRound(states: IdeaState[], bus: EventBus, model?: string): Promise<PairResult[]> {
-  const pairs = pairSwiss(states);
+export async function runSwissRound(states: IdeaState[], bus: EventBus, model?: string, played?: Set<string>): Promise<PairResult[]> {
+  const pairs = pairSwiss(states, played);
   const results = await mapWithLimit(pairs, config.judgingConcurrency, ([a, b]) => judgePair(a, b, bus, { model }));
   return results.filter((r): r is PairResult => r !== null);
 }
@@ -103,7 +118,8 @@ export async function runSwissTournament(
   bus: EventBus,
   model?: string,
 ): Promise<void> {
+  const played = new Set<string>();
   for (let r = 0; r < rounds; r++) {
-    await runSwissRound(states, bus, model);
+    await runSwissRound(states, bus, model, played);
   }
 }

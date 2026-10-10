@@ -30,7 +30,7 @@ export function TreeView({ ideas, champions, selectedId, onSelect }: Props) {
   }, [ideas]);
 
   return (
-    <div style={{ width: '100%', height: '100%', display: 'flex', overflowX: 'auto', overflowY: 'auto', padding: 16, gap: 16, background: '#0a0c14' }}>
+    <div style={{ width: '100%', height: '100%', display: 'flex', overflowX: 'auto', overflowY: 'auto', padding: '56px 16px 16px', gap: 16, background: '#0a0c14' }}>
       {columns.map((col) => (
         <div key={col.key} style={{ display: 'flex', flexDirection: 'column', minWidth: 260, gap: 8 }}>
           <div style={{ fontSize: 12, opacity: 0.6, textTransform: 'uppercase', letterSpacing: 1 }}>{col.label} — {col.ideas.length}</div>

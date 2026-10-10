@@ -61,6 +61,7 @@ export type RoundPhase =
 export type Event =
   | { type: 'tournament:start'; tournamentId: string; targetCount: number; cinematic?: boolean; ts: number }
   | { type: 'phase:change'; phase: RoundPhase; ts: number }
+  | { type: 'round:start'; round: number; ts: number }
   | { type: 'idea:generated'; idea: Idea; ts: number }
   | { type: 'idea:scored'; ideaId: string; score: RubricScore; ts: number }
   | { type: 'idea:killed'; ideaId: string; reason: string; round: number; ts: number }
